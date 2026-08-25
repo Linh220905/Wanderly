@@ -1,0 +1,24 @@
+kind = "mobile"
+previewPath = "/"
+title = "Wanderly"
+description = "A location-based running and exploration game where users reveal the world as they move, discover checkpoints, earn rewards, and build a personal journey."
+version = "1.0.0"
+id = "artifacts/wanderly"
+router = "expo-domain"
+
+[[services]]
+name = "expo"
+ensurePreviewReachable = "/status"
+paths = [ "/" ]
+localPort = 21913
+
+[services.development]
+run = "pnpm --filter @workspace/wanderly run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/wanderly", "run", "build" ]
+run = [ "pnpm", "--filter", "@workspace/wanderly", "run", "serve" ]
+
+[services.env]
+PORT = "21913"
+BASE_PATH = "/"

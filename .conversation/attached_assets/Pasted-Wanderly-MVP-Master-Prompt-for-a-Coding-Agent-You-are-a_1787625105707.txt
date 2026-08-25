@@ -1,0 +1,877 @@
+Wanderly MVP — Master Prompt for a Coding Agent
+
+You are a senior iOS engineer, product designer, game-systems designer, and QA engineer. Build a production-quality MVP of Wanderly, a location-based running and exploration game.
+
+Wanderly turns the real world into a game map. The map begins covered by fog. As the user physically walks, runs, or hikes, fog is permanently cleared around the traveled path. Users discover checkpoints, open reward chests, earn XP and coins, collect badges/fragments, complete missions, and review every individual activity.
+
+Use other real-world exploration apps only as category references. Do not copy their UI, assets, names, wording, icons, map style, or proprietary mechanics. Wanderly must have an original identity.
+
+1. Working rules
+
+Inspect the entire existing repository before changing code: architecture, models, services, views, assets, dependencies, deployment target, backend, tests, signing, and CodeMagic configuration.
+
+Preserve useful existing Wanderly code. Do not replace a working project with a new template.
+
+Read and follow repository instructions such as AGENTS.md.
+
+Check git status; preserve unrelated user changes.
+
+Produce a short implementation plan, then implement it fully.
+
+Do not stop at static mockups. Primary navigation, state, persistence, map behavior, tracking, rewards, and history must work.
+
+Do not leave dead buttons, fake login, fake purchase success, or permanent placeholder data in release code.
+
+Never hardcode production secrets or StoreKit prices.
+
+Use protocols for authentication, purchases, location, persistence, checkpoint, and sync services.
+
+Ask only when credentials or an irreversible external decision truly blocks the task.
+
+2. Platform and architecture
+
+Build iOS first using the existing native Swift project.
+
+UI: SwiftUI.
+
+Advanced map overlays: MapKit MKMapView wrapped for SwiftUI.
+
+Location: Core Location.
+
+Purchases: StoreKit 2.
+
+Haptics: Core Haptics or UIKit feedback generators.
+
+Persistence: preserve the existing layer; otherwise use SwiftData when supported or Core Data for an older target.
+
+Backend: preserve the existing backend. If none exists, create clean service/repository interfaces and a Supabase-ready implementation for authentication, user profiles, checkpoints, claims, rewards, and cloud backup. Keep a local development implementation so the UI and tests can run without production credentials.
+
+Architecture: lightweight MVVM, feature-based folders, dependency injection, Swift Concurrency.
+
+Deployment target: preserve the current target unless a documented technical reason requires a change.
+
+Cloud builds: preserve or add a CodeMagic-compatible build workflow. The owner works on Linux and uses CodeMagic, not a local Mac workflow.
+
+Suggested modules: App, Core/DesignSystem, Core/Location, Core/Map, Core/Persistence, Core/Purchases, Core/Auth, Features/Onboarding, Features/Paywall, Features/Auth, Features/Map, Features/ActiveRun, Features/Journey, Features/Checkpoints, Features/Missions, Features/Collection, Features/Profile, Resources, Tests.
+
+Adapt this organization to the repository; do not force a destructive restructure.
+
+3. Non-negotiable first-launch flow
+
+The exact order is:
+
+Welcome → 10 onboarding questions → Personalized explorer summary → Premium paywall → Login/account creation → Location setup → Main app
+
+Login must not appear before onboarding or the first premium presentation.
+
+Implement an explicit root state machine:
+
+needsOnboarding
+
+needsPaywallPresentation
+
+needsAuthentication
+
+needsLocationSetup
+
+readyForMainApp
+
+Persist every completed gate. On relaunch:
+
+Incomplete onboarding resumes at the last unanswered question.
+
+Completed onboarding but unseen paywall opens the paywall.
+
+Completed/dismissed/purchased paywall but unauthenticated user opens authentication.
+
+Authenticated user without location setup opens location setup.
+
+Otherwise open the main app.
+
+Onboarding happens before authentication, so save answers locally first. After login, migrate them to the authenticated profile without loss or duplication.
+
+If a purchase occurs before login, StoreKit remains the source of truth. Read current entitlements after authentication and synchronize the entitlement with the user account. Premium access must not disappear during login.
+
+4. Welcome
+
+Create a polished welcome screen with:
+
+Wanderly logo and original explorer mark/mascot.
+
+Headline: Turn every run into an adventure.
+
+Supporting line: Run, reveal the map, discover rewards.
+
+A visual preview of a route clearing fog.
+
+Primary CTA: Start Exploring.
+
+Short location privacy reassurance.
+
+5. Exactly 10 onboarding questions
+
+Each question is a separate fast step with large cards, Back, x of 10, and a progress bar. Save each answer immediately. Use canonical metric values internally and localized units in the UI.
+
+1 — Primary goal
+
+Prompt: What would you like Wanderly to help you achieve?
+
+Multi-select, at least one:
+
+Explore new places
+
+Run more consistently
+
+Improve my fitness
+
+Stay motivated
+
+Compete and earn rewards
+
+2 — Preferred activity
+
+Prompt: How do you usually explore?
+
+Walking
+
+Running
+
+Hiking
+
+A mix of activities
+
+Do not add cycling to the MVP because the initial GPS validation and reward balance target walking, running, and hiking.
+
+3 — Experience
+
+Prompt: What best describes your current level?
+
+Just getting started
+
+Casual explorer
+
+Regular runner
+
+Experienced runner
+
+4 — Weekly frequency
+
+Prompt: How often are you active each week?
+
+0–1 days
+
+2–3 days
+
+4–5 days
+
+6–7 days
+
+5 — Typical session distance
+
+Prompt: How far do you usually go in one session?
+
+Less than 2 km
+
+2–5 km
+
+5–10 km
+
+More than 10 km
+
+I’m not sure yet
+
+6 — Weekly target
+
+Prompt: Choose a weekly distance goal.
+
+5 km
+
+10 km
+
+20 km
+
+30 km
+
+Custom
+
+Recommend a default using answers 3–5, but allow any choice.
+
+7 — Preferred environment
+
+Prompt: Where do you enjoy exploring most?
+
+City streets
+
+Parks and waterfronts
+
+Trails and nature
+
+Anywhere with something new
+
+8 — Preferred time
+
+Prompt: When do you usually run or walk?
+
+Early morning
+
+Daytime
+
+Evening
+
+It changes often
+
+Use this for later reminders and mission ordering. Do not request notification permission here.
+
+9 — Main motivation
+
+Prompt: What would motivate you most?
+
+Clearing the fog
+
+Collecting rare rewards
+
+Completing missions
+
+Building a streak
+
+Climbing leaderboards
+
+Use this to order content; do not remove other features.
+
+10 — Competition preference
+
+Prompt: How social should your adventure feel?
+
+Private and personal
+
+Compare with friends
+
+Compete locally
+
+Compete globally
+
+Privacy remains private by default. Never enable precise-location sharing automatically. Live social maps are outside the MVP.
+
+6. Personalized explorer summary
+
+After question 10, create a result screen containing:
+
+Explorer type derived from answers: City Pathfinder, Trail Seeker, Consistency Builder, Reward Hunter, or Competitive Explorer.
+
+Weekly distance target.
+
+Recommended weekly session count.
+
+Primary motivation.
+
+Short explanation of how Wanderly turns the goal into exploration progress.
+
+CTA: Build My Adventure.
+
+Do not make medical claims or guarantee fitness outcomes.
+
+7. Premium before login
+
+The paywall appears after the explorer summary and before authentication.
+
+It is a soft paywall. A clear Continue with Free action must exist. Do not use hidden close controls, fake countdowns, misleading trials, or deceptive discounts.
+
+Premium benefits:
+
+Advanced weekly/monthly analytics.
+
+Unlimited detailed history; Free shows the latest 10 detailed sessions but never deletes underlying data.
+
+Route replay and advanced share-card themes.
+
+Custom fog colors and map themes.
+
+Exclusive missions and cosmetic reward variants.
+
+GPX export when implemented.
+
+Early access to exploration events.
+
+Never lock these essentials:
+
+Recording an activity.
+
+Permanent fog clearing.
+
+Current map access.
+
+Basic completed-run summaries.
+
+Basic checkpoints/rewards.
+
+Location privacy and safety controls.
+
+Paywall requirements:
+
+Monthly plan.
+
+Yearly plan emphasized as best value.
+
+Lifetime only if a configured StoreKit product exists.
+
+Prices from StoreKit metadata, never hardcoded.
+
+Restore Purchases.
+
+Terms and Privacy links.
+
+Clear recurring-billing disclosure.
+
+Loading, success, cancellation, pending, verification-failure, offline, and retry states.
+
+Purchase success or Continue with Free proceeds to authentication.
+
+Use a PurchaseService protocol with a StoreKit 2 implementation. DEBUG may simulate states for UI testing, but RELEASE must never grant fake entitlement.
+
+8. Authentication after paywall
+
+Required:
+
+Sign in with Apple.
+
+Secure email sign-up/sign-in or email magic link supported by the selected backend.
+
+Add Google only when a valid configuration already exists; do not ship an incomplete button.
+
+Loading and clear errors.
+
+Keychain token storage.
+
+Session restoration.
+
+Sign out and delete-account entry points.
+
+Merge local onboarding, fog, sessions, and entitlement after login without duplication.
+
+Never store raw passwords locally. DEBUG guest mode may exist, but release flow must use real authentication.
+
+9. Contextual location setup
+
+After authentication, explain before requesting permission:
+
+Location while using the app draws the route and clears fog.
+
+Background location can continue an explicitly started activity when the screen locks.
+
+Background GPS may affect battery.
+
+Tracking begins only when the user starts an activity and ends when they finish/discard it.
+
+Permission sequence:
+
+Request When In Use first.
+
+Request Always only when background tracking is enabled or genuinely needed.
+
+Provide limited foreground tracking when Always is denied.
+
+If denied, explain and offer Open Settings.
+
+Never spam permission dialogs.
+
+Ask for notifications later in context, not during onboarding.
+
+10. Main tabs
+
+Use five tabs, with Map as default:
+
+Map
+
+Missions
+
+Journey
+
+Collection
+
+Profile
+
+11. Fog-of-world map
+
+The Map is the core experience.
+
+Required behavior:
+
+Center on the user and provide a recenter button.
+
+Show location and heading.
+
+Cover unexplored territory with an atmospheric semi-opaque fog.
+
+Keep previously explored territory permanently visible.
+
+Keep explored progress visible at suitable zoom levels; it must not vanish when zooming out.
+
+During a valid active session, each accepted GPS point clears a configurable 20–30 m radius.
+
+Interpolate valid neighboring points into a smooth cleared corridor.
+
+Never bridge implausible GPS jumps.
+
+Persist permanent exploration separately from run history.
+
+Deleting a run does not automatically restore fog.
+
+Recommended implementation:
+
+Use MKMapView for precise overlay control.
+
+Render fog as a large polygon/visible-region overlay with holes using even-odd fill, a mask, or a performant equivalent.
+
+Keep route geometry for journey replay.
+
+Also quantize exploration into stable geographic cells/tiles for deduplication, percentages, rewards, and future sync.
+
+Process only visible geometry and cache simplified geometry by zoom level.
+
+Perform expensive geometry away from the main thread.
+
+Do not rebuild the entire world overlay for every GPS sample.
+
+Improve an existing sound fog renderer instead of replacing it unnecessarily.
+
+12. Active activity session
+
+Before start
+
+Show current position, selected activity (Walk/Run/Hike), nearby checkpoints, weekly progress, and a prominent Start button.
+
+During activity
+
+Show live elapsed time, distance, current/average pace, newly explored amount, nearby checkpoint distance, route line, and fog clearing.
+
+Controls:
+
+Start
+
+Pause
+
+Resume
+
+Finish
+
+Discard with confirmation
+
+Prevent accidental finish/discard. Frequently persist an active-session snapshot so a crash, termination, or signal loss does not erase the activity.
+
+GPS validation must:
+
+Reject invalid/negative accuracy.
+
+Ignore points worse than a configurable 35–50 m horizontal-accuracy threshold.
+
+Avoid distance calculation from one noisy initial fix.
+
+Reject implausible jumps using distance, elapsed time, and activity type.
+
+Use location timestamps.
+
+Add no distance/fog while paused.
+
+Avoid repeated-point double counting.
+
+Flag suspicious segments instead of corrupting the entire route.
+
+Use configurable walking/running/hiking speed thresholds, not scattered constants.
+
+Reduce obvious driving/teleport abuse without deleting a legitimate run because of one noisy GPS point.
+
+Background requirements:
+
+Continue only an explicitly started session when permission allows.
+
+Configure appropriate Core Location background modes.
+
+Never continuously track when no session is active.
+
+Show a clear active-tracking indicator.
+
+Restore UI state on foreground return.
+
+Balance accuracy and battery using distance filters and activity-aware configuration.
+
+13. Individual run summary and Journey history
+
+Every completed activity is saved independently.
+
+After Finish, open a Run Summary containing:
+
+Exact route shape on a map.
+
+Total distance.
+
+Elapsed time and moving time when available.
+
+Average pace and speed.
+
+Start/end time and date.
+
+Activity type.
+
+Newly explored cells/approximate area.
+
+Checkpoints collected.
+
+XP and coins earned.
+
+Badges/collectibles earned.
+
+Editable title such as Morning Run.
+
+Share Journey and Done actions.
+
+Generate and cache a preview using MKMapSnapshotter plus route polyline. The full detail view must still show the real route, not only the image.
+
+Journey tab:
+
+Reverse-chronological sessions.
+
+Map thumbnail, title/date, distance, duration, pace.
+
+Week, Month, Year, All Time filters.
+
+Period totals.
+
+Empty state encouraging the first run.
+
+Tap to open details.
+
+Maintain two independent datasets:
+
+ExplorationProgress: permanent revealed world.
+
+RunSession: one recorded activity and its route.
+
+Deleting a run requires confirmation and explains that explored territory remains revealed.
+
+Share cards contain Wanderly branding, route, distance, time, pace, and newly explored amount. Hide/round/crop sensitive start/end locations by default so a home address cannot be inferred.
+
+14. Checkpoints and rewards
+
+Checkpoint fields: stable ID, coordinate, name, type, activation radius (initially 30–50 m), reward, optional availability window, repeatability, cooldown, active status, and safety status.
+
+MVP types:
+
+Common chest
+
+Rare chest
+
+Landmark
+
+City fragment
+
+When a user enters the radius during a valid session:
+
+Trigger haptic feedback.
+
+Show a small discovery animation.
+
+Allow claim.
+
+Grant XP, coins, or a collectible.
+
+Save idempotently so retries/taps cannot duplicate rewards.
+
+Attach rewards to the current run summary.
+
+Use a backend-controlled production dataset so unsafe points can be removed. Do not place rewards in lakes, highways, private property, restricted areas, or inaccessible locations.
+
+Include a deterministic DEBUG-only Da Nang route and seeded checkpoints to test movement, fog, claims, and summaries. Never expose simulation controls in RELEASE.
+
+15. Missions
+
+Include Daily and Weekly missions with progress bars, reward previews, completion, and idempotent claim states.
+
+Examples:
+
+Move 2 km today.
+
+Explore 10 new cells.
+
+Find 2 checkpoints.
+
+Complete 3 sessions this week.
+
+Explore on 3 different days.
+
+Progress must update from real session/checkpoint events. Personalize mission ordering from onboarding. Do not build clans, chat, group missions, or social feeds in the MVP.
+
+16. Collection
+
+Include badges, city fragments, landmark cards, locked silhouettes, and Common/Rare/Epic/Legendary rarity. Details show when and approximately where an item was earned without publicly exposing sensitive precise coordinates.
+
+Do not build trading, marketplace, crafting, combat, or complex inventory systems.
+
+17. Profile and settings
+
+Profile shows display name, avatar, explorer level/XP, total distance, total sessions, explored cells/area, checkpoints, longest session, weekly target, and Premium status.
+
+Settings include unit, tracking/permission status, fog appearance, haptics, reminders, privacy, data export/deletion entry point, Restore Purchases, Terms, Privacy Policy, Sign Out, and Delete Account.
+
+18. Required data concepts
+
+UserProfile
+
+Store ID, display name/avatar, onboarding answers, all 10 normalized preferences, explorer type, unit, level, XP, coins, weekly target, and entitlement.
+
+RunSession
+
+Store ID, user ID, title, activity type, status, start/end, elapsed/moving seconds, distance meters, average pace, average speed, route points, newly explored cells, checkpoint claims, XP/coins/collectibles earned, cached map preview reference, sync state, and timestamps.
+
+Each route point stores latitude, longitude, timestamp, horizontal accuracy, and optional altitude/speed/course.
+
+ExplorationCell
+
+Store stable cell ID, first/last explored time, optional source run ID, and sync state.
+
+Checkpoint and CheckpointClaim
+
+Store checkpoint definition plus claim user, run, time, verified coordinate/accuracy, reward transaction, and sync state.
+
+Mission/MissionProgress
+
+Support period, target type/value, reward, progress, completion, and claimed state.
+
+RewardTransaction
+
+Use append-only, idempotent transactions so retries cannot duplicate XP, coins, or collectibles.
+
+19. Local-first synchronization
+
+Save active and completed sessions locally first.
+
+Fog clearing works offline.
+
+Queue cloud sync and checkpoint verification when offline.
+
+Never lose a run because a request fails.
+
+Use stable client-generated IDs.
+
+Prevent duplicate sessions, claims, and rewards during retries.
+
+Show subtle pending-sync status without blocking a summary.
+
+20. Design direction
+
+Create an original outdoor-adventure identity:
+
+Deep teal/navy/forest green/fog gray foundations.
+
+Gold/orange reward accents.
+
+Rounded cards, readable typography, subtle elevation.
+
+Map remains dominant.
+
+Small tasteful animations/haptics for fog clearing and rewards.
+
+Avoid clutter and avoid imitating Pokémon GO or MysteryHike.
+
+Support Dynamic Type, VoiceOver, contrast, Reduced Motion, safe areas, common iPhones, loading/empty/error/offline/permission-denied/no-location states.
+
+21. Privacy and safety
+
+Treat routes and location as sensitive.
+
+Track only during explicit activities.
+
+Never expose another user’s precise live location.
+
+Keep social sharing private by default.
+
+Hide sensitive share-card endpoints.
+
+Support account/data deletion.
+
+Explain background location and battery use honestly.
+
+Include a reminder to watch traffic and surroundings.
+
+22. Analytics abstraction
+
+Track without raw coordinates in generic analytics:
+
+onboarding started/question completed/completed
+
+explorer summary viewed
+
+paywall viewed/plan selected/purchase started/completed/failed/continue free
+
+login started/completed
+
+location permission result
+
+run started/paused/resumed/completed/discarded
+
+checkpoint discovered/claimed
+
+mission completed/reward claimed
+
+journey detail viewed/shared
+
+Never send latitude, longitude, home address, email, or auth data as analytics properties.
+
+23. Tests and debug tools
+
+Add focused tests for:
+
+Root gate ordering and relaunch state.
+
+Onboarding persistence/resume.
+
+Onboarding → paywall → authentication order.
+
+Purchase entitlement mapping where testable.
+
+Distance and pace calculations.
+
+Pause/resume.
+
+Invalid/impossible GPS rejection.
+
+Crash recovery.
+
+Exploration-cell deduplication.
+
+Fog independence from run deletion.
+
+Checkpoint radius detection.
+
+Idempotent rewards.
+
+Free/Premium gating.
+
+Local-to-authenticated migration.
+
+The DEBUG Da Nang simulation must validate moving marker, growing route, fog clearing, live metrics, checkpoint discovery, summary, and Journey persistence. No debug accounts, simulation, or fake entitlement may appear in RELEASE.
+
+24. Performance
+
+Keep map gestures smooth during tracking.
+
+Throttle UI updates separately from raw persistence.
+
+Do not recompute all explored geometry for every sample.
+
+Simplify old routes for low zoom while preserving detailed source data.
+
+Load Journey thumbnails asynchronously.
+
+Incrementally load long history.
+
+Keep expensive work off the main thread.
+
+Handle thousands of route points without obvious stalls.
+
+25. Build and delivery
+
+The task is complete only when:
+
+The project builds using available checks or CodeMagic configuration.
+
+No secrets are committed.
+
+Setup documentation covers backend, authentication, StoreKit products, background-location capability, privacy strings, and CodeMagic variables.
+
+Manual Apple/backend console steps are documented exactly.
+
+Available tests/lint/build checks are run.
+
+Unverified real-device behavior is labeled honestly.
+
+26. End-to-end acceptance criteria
+
+New user sees Welcome.
+
+User completes exactly 10 questions; answers survive Back and relaunch.
+
+Personalized summary appears.
+
+Premium appears before login.
+
+User can purchase, restore, or clearly continue free.
+
+Authentication appears after premium.
+
+Login migrates onboarding data and entitlement.
+
+Location setup appears after login.
+
+Main Map opens with unexplored fog.
+
+User starts Walk, Run, or Hike.
+
+Valid movement draws a route and permanently clears fog.
+
+Distance/time/pace update correctly.
+
+A nearby checkpoint triggers haptic discovery and an idempotent reward.
+
+Pause stops progress; Resume continues.
+
+Finish creates a summary with route shape, distance, time, pace, exploration, and rewards.
+
+The session appears in Journey and reopens correctly.
+
+Relaunch preserves auth, onboarding, entitlement, fog, and history.
+
+Deleting a run does not re-cover permanent exploration.
+
+27. Implementation order
+
+Inspect repository and plan.
+
+Core models, persistence, root state machine.
+
+Welcome and 10-question onboarding.
+
+Personalized summary.
+
+StoreKit-ready soft paywall.
+
+Authentication and local-data migration.
+
+Location setup.
+
+Five-tab shell.
+
+Fog map and exploration persistence.
+
+Active-session state machine and validated GPS pipeline.
+
+Run summary and Journey history.
+
+Checkpoints and rewards.
+
+Missions and Collection.
+
+Profile/settings/privacy/purchase restoration.
+
+DEBUG simulation, tests, performance, and CodeMagic verification.
+
+Verify existing functionality after every phase; do not postpone all testing until the end.
+
+28. Final response from the coding agent
+
+When finished, report:
+
+Outcome summary.
+
+Features implemented.
+
+Architecture decisions.
+
+Main files/modules changed.
+
+Tests/build checks and exact results.
+
+Manual configuration still required.
+
+Known limitations and safest next step.
+
+Do not merely explain what should be built. Implement the MVP in the repository, verify it, and leave the project coherent and buildable.

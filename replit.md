@@ -1,6 +1,6 @@
-# [Project name]
+# Wanderly
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+Wanderly turns walking, running, and hiking into a private map-revealing adventure with rewards and personal journey history.
 
 ## Run & Operate
 
@@ -22,15 +22,19 @@ _Replace the heading above with the project's name, and this line with one sente
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `artifacts/wanderly/app/index.tsx` — persisted first-launch gates, onboarding, paywall, setup, map shell, missions, journey, collection, and profile.
+- `artifacts/wanderly/constants/colors.ts` — Wanderly’s dark outdoor-adventure palette.
+- `artifacts/wanderly/assets/images/icon.png` — generated app icon and splash artwork.
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- The first-launch order is an explicit persisted gate state: onboarding, explorer summary, premium presentation, account, location, then the main app.
+- AsyncStorage is the local-first source for the first build so the map and progress survive relaunch without requiring production credentials.
+- The map surface is intentionally designed as a fog/reveal experience first; native GPS permission is requested only after account setup.
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+The MVP includes a ten-step personalized onboarding flow, a soft premium gate, account/location setup, a map-first five-section shell, active exploration controls, mission progress, journey history, collection badges, and profile settings. Local progress persists across relaunches.
 
 ## User preferences
 

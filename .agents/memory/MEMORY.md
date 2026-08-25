@@ -1,0 +1,1 @@
+- [Wanderly architecture](wanderly-architecture.md) — Expo local-first MVP preserves the complete gate flow before production services are connected.
