@@ -16,6 +16,36 @@ const defaultRegion: Region = {
   longitudeDelta: 0.055,
 };
 
+function metersBetween(a: MapCoordinate, b: MapCoordinate) {
+  const earthRadius = 6371000;
+  const lat1 = a.latitude * Math.PI / 180;
+  const lat2 = b.latitude * Math.PI / 180;
+  const dLat = (b.latitude - a.latitude) * Math.PI / 180;
+  const dLon = (b.longitude - a.longitude) * Math.PI / 180;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+  return earthRadius * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+}
+
+function revealShape(center: MapCoordinate, radiusMeters: number) {
+  const points: MapCoordinate[] = [];
+  for (let index = 0; index < 16; index += 1) {
+    const angle = (index / 16) * Math.PI * 2;
+    const variation = 0.86 + ((index * 17) % 9) / 50;
+    const radius = radiusMeters * variation;
+    points.push({
+      latitude: center.latitude + (Math.sin(angle) * radius) / 111000,
+      longitude: center.longitude + (Math.cos(angle) * radius) / (111000 * Math.cos(center.latitude * Math.PI / 180)),
+    });
+  }
+  return points;
+}
+
+const checkpoints = [
+  { id: 'dragon-bridge', title: 'Dragon Bridge', kind: 'LANDMARK', reward: '120 XP', offset: { latitude: 0.006, longitude: -0.007 } },
+  { id: 'river-cache', title: 'Riverside Cache', kind: 'RARE CHEST', reward: '80 coins', offset: { latitude: -0.004, longitude: 0.009 } },
+  { id: 'city-fragment', title: 'City Fragment', kind: 'FRAGMENT', reward: '1 fragment', offset: { latitude: 0.008, longitude: 0.008 } },
+];
+
 export function LiveMap({
   state,
   route,
@@ -40,6 +70,7 @@ export function LiveMap({
   const [persistedRoute, setPersistedRoute] = useState<MapCoordinate[]>([]);
   const [liveRoute, setLiveRoute] = useState<MapCoordinate[]>([]);
   const displayedRoute = route ?? [...persistedRoute, ...liveRoute];
+  const [liveDistance, setLiveDistance] = useState(0);
   useEffect(() => {
     AsyncStorage.getItem('wanderly-revealed-route').then(value => {
       if (value) setPersistedRoute(JSON.parse(value) as MapCoordinate[]);
@@ -48,10 +79,24 @@ export function LiveMap({
   useEffect(() => {
     if (!active || route) return;
     let subscription: Location.LocationSubscription | undefined;
+    let lastPoint: MapCoordinate | undefined;
+    let lastTimestamp = 0;
     Location.watchPositionAsync(
-      { accuracy: Location.Accuracy.Balanced, distanceInterval: 8, timeInterval: 5000 },
+      { accuracy: Location.Accuracy.High, distanceInterval: 5, timeInterval: 3000 },
       position => {
+        const accuracy = position.coords.accuracy ?? -1;
+        const timestamp = position.timestamp;
+        if (accuracy < 0 || accuracy > 45 || timestamp <= lastTimestamp) return;
         const point = { latitude: position.coords.latitude, longitude: position.coords.longitude };
+        if (lastPoint) {
+          const segment = metersBetween(lastPoint, point);
+          const elapsed = Math.max((timestamp - lastTimestamp) / 1000, 1);
+          const speed = segment / elapsed;
+          if (segment < 2 || speed > 8) return;
+          setLiveDistance(value => value + segment);
+        }
+        lastPoint = point;
+        lastTimestamp = timestamp;
         setLiveRoute(previous => {
           const next = [...previous, point];
           AsyncStorage.setItem('wanderly-revealed-route', JSON.stringify([...persistedRoute, ...next]));
@@ -70,24 +115,15 @@ export function LiveMap({
     const west = region.longitude - region.longitudeDelta / 2;
     const half = Math.max(region.latitudeDelta * 0.11, 0.0032);
     const longHalf = Math.max(region.longitudeDelta * 0.12, 0.0032);
-    const top = [
+    const outer = [
       { latitude: north, longitude: west }, { latitude: north, longitude: east },
-      { latitude: mapCurrent.latitude + half, longitude: east }, { latitude: mapCurrent.latitude + half, longitude: west },
-    ];
-    const bottom = [
-      { latitude: mapCurrent.latitude - half, longitude: west }, { latitude: mapCurrent.latitude - half, longitude: east },
       { latitude: south, longitude: east }, { latitude: south, longitude: west },
     ];
-    const left = [
-      { latitude: mapCurrent.latitude - half, longitude: west }, { latitude: mapCurrent.latitude + half, longitude: west },
-      { latitude: mapCurrent.latitude + half, longitude: mapCurrent.longitude - longHalf }, { latitude: mapCurrent.latitude - half, longitude: mapCurrent.longitude - longHalf },
-    ];
-    const right = [
-      { latitude: mapCurrent.latitude + half, longitude: mapCurrent.longitude + longHalf }, { latitude: mapCurrent.latitude + half, longitude: east },
-      { latitude: mapCurrent.latitude - half, longitude: east }, { latitude: mapCurrent.latitude - half, longitude: mapCurrent.longitude + longHalf },
-    ];
-    return [top, bottom, left, right];
-  }, [mapCurrent, region]);
+    const points = displayedRoute.length ? displayedRoute : [mapCurrent];
+    const holes = points.filter((_, index) => index % 2 === 0).map(point => revealShape(point, 25));
+    holes.push(revealShape(mapCurrent, Math.max(half * 111000, 30)));
+    return { outer, holes };
+  }, [displayedRoute, mapCurrent, region]);
 
   return (
     <View style={styles.container}>
@@ -103,13 +139,13 @@ export function LiveMap({
         mapType="standard"
         userInterfaceStyle="dark"
       >
-        {fog.map((points, index) => <Polygon key={index} coordinates={points} fillColor="rgba(7,27,28,0.84)" strokeColor="rgba(7,27,28,0.9)" strokeWidth={1} />)}
+        <Polygon coordinates={fog.outer} holes={fog.holes} fillColor="rgba(7,27,28,0.84)" strokeColor="rgba(7,27,28,0.9)" strokeWidth={1} />
         {displayedRoute.length > 1 && <Polyline coordinates={displayedRoute} strokeColor={colors.light.primary} strokeWidth={5} lineCap="round" lineJoin="round" />}
         {displayedRoute.map((point, index) => <Circle key={'reveal-' + index} center={point} radius={25} fillColor="rgba(244,163,64,0.13)" strokeColor="rgba(244,163,64,0.18)" strokeWidth={1} />)}
         <Circle center={mapCurrent} radius={28} fillColor="rgba(244,163,64,0.18)" strokeColor="rgba(244,163,64,0.48)" strokeWidth={1} />
-        <Marker coordinate={{ latitude: mapCurrent.latitude + 0.006, longitude: mapCurrent.longitude - 0.007 }} anchor={{ x: 0.5, y: 0.5 }}>
-          <View style={styles.checkpoint}><Feather name="gift" size={13} color={colors.light.primaryForeground} /></View>
-        </Marker>
+        {checkpoints.map(checkpoint => <Marker key={checkpoint.id} coordinate={{ latitude: mapCurrent.latitude + checkpoint.offset.latitude, longitude: mapCurrent.longitude + checkpoint.offset.longitude }} anchor={{ x: 0.5, y: 0.5 }} title={checkpoint.title} description={checkpoint.kind + ' · ' + checkpoint.reward}>
+          <View style={styles.checkpoint}><Feather name={checkpoint.kind === 'LANDMARK' ? 'map-pin' : 'gift'} size={13} color={colors.light.primaryForeground} /></View>
+        </Marker>)}
       </MapView>
       <View style={styles.mapTop}>
         <View>
@@ -124,11 +160,11 @@ export function LiveMap({
       <View style={styles.sheet}>
         <View style={styles.handle} />
         <View style={styles.sheetRow}>
-          <View><Text style={styles.label}>THIS WEEK</Text><Text style={styles.distance}>{state.distance.toFixed(1)} <Text style={styles.unit}>km</Text></Text></View>
+          <View><Text style={styles.label}>THIS WEEK</Text><Text style={styles.distance}>{(state.distance + liveDistance / 1000).toFixed(2)} <Text style={styles.unit}>km</Text></Text></View>
           <View style={styles.explored}><Text style={styles.label}>REVEALED</Text><Text style={styles.revealed}>{state.explored || 0} <Text style={styles.unit}>cells</Text></Text></View>
         </View>
         {active ? <View style={styles.activeRow}><View><Text style={styles.label}>ACTIVE EXPLORATION</Text><Text style={styles.timer}>{time}</Text><Text style={styles.sub}>GPS corridor clearing · 25 m radius</Text></View><View style={styles.actions}><Pressable style={styles.round} onPress={pause}><Feather name="pause" size={18} color={colors.light.primaryForeground} /></Pressable><Pressable style={[styles.round, styles.finish]} onPress={finish}><Feather name="square" size={15} color={colors.light.primaryForeground} /></Pressable></View></View> : <Pressable style={styles.start} onPress={start}><Feather name="play" size={18} color={colors.light.primaryForeground} /><Text style={styles.startText}>Start exploring</Text></Pressable>}
-        <Text style={styles.nearby}><Feather name="gift" size={13} color={colors.light.primary} /> Hidden cache · 420 m away</Text>
+        <Text style={styles.nearby}><Feather name="gift" size={13} color={colors.light.primary} /> 3 checkpoints nearby · XP, coins & fragments</Text>
       </View>
     </View>
   );
