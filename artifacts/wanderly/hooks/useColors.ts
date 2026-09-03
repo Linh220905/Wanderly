@@ -7,17 +7,15 @@ import colors from '@/constants/colors';
  * The returned object contains all color tokens for the active palette
  * plus scheme-independent values like `radius`.
  *
- * Falls back to the light palette when no dark key is defined in
- * constants/colors.ts (the scaffold ships light-only by default).
- * When a sibling web artifact's dark tokens are synced into a `dark`
- * key, this hook will automatically switch palettes based on the
- * device's appearance setting.
+ * Wanderly uses a dark-first design, so both light and dark palettes
+ * are dark-themed. The hook still respects the system preference and
+ * will pick the `dark` palette when available.
  */
 export function useColors() {
   const scheme = useColorScheme();
   const palette =
     scheme === 'dark' && 'dark' in colors
-      ? (colors as Record<string, typeof colors.light>).dark
+      ? colors.dark
       : colors.light;
   return { ...palette, radius: colors.radius };
 }

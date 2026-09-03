@@ -11,13 +11,29 @@
     "splash": {
       "image": "./assets/images/icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#071B1C"
     },
     "ios": {
-      "supportsTablet": false
+      "supportsTablet": false,
+      "bundleIdentifier": "com.wanderly.app",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Wanderly uses your location to record your exploration route and reveal map fog as you move.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Wanderly uses background location to continue tracking your adventure even when your device screen is off.",
+        "NSLocationAlwaysUsageDescription": "Wanderly requires background location access to reveal fog of war during outdoor activities."
+      }
     },
     "android": {
-      "permissions": ["ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION", "ACCESS_BACKGROUND_LOCATION"]
+      "package": "com.wanderly.app",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/icon.png",
+        "backgroundColor": "#071B1C"
+      },
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "FOREGROUND_SERVICE"
+      ]
     },
     "web": {
       "favicon": "./assets/images/icon.png"
@@ -31,7 +47,12 @@
       ],
       "expo-font",
       "expo-web-browser",
-      "expo-location"
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Wanderly needs location permission to draw your route and clear the fog of war as you explore."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

@@ -1,27 +1,82 @@
 /**
- * Semantic design tokens for the mobile app.
+ * Wanderly Design Tokens — Dark outdoor-adventure palette.
  *
- * These tokens mirror the naming conventions used in web artifacts (index.css)
- * so that multi-artifact projects share a cohesive visual identity.
- *
- * Replace the placeholder values below with values that match the project's
- * brand. If a sibling web artifact exists, read its index.css and convert the
- * HSL values to hex so both artifacts use the same palette.
- *
- * To add dark mode, add a `dark` key with the same token names.
- * The useColors() hook will automatically pick it up.
+ * Both light and dark palettes are provided.
+ * useColors() hook automatically picks the active palette.
  */
 
 const colors = {
   light: {
-    text: '#F4F7F3', tint: '#F4A340', background: '#071B1C',
-    foreground: '#F4F7F3', card: '#102B2B', cardForeground: '#F4F7F3',
-    primary: '#F4A340', primaryForeground: '#071B1C',
-    secondary: '#173D3A', secondaryForeground: '#DDE9E1',
-    muted: '#173D3A', mutedForeground: '#91AAA2',
-    accent: '#D7E9C3', accentForeground: '#102B2B',
-    destructive: '#E67566', destructiveForeground: '#FFFFFF',
-    border: '#28514B', input: '#28514B',
+    text: '#F4F7F3',
+    tint: '#F4A340',
+    background: '#071B1C',
+    foreground: '#F4F7F3',
+    card: '#102B2B',
+    cardForeground: '#F4F7F3',
+    primary: '#F4A340',
+    primaryForeground: '#071B1C',
+    secondary: '#173D3A',
+    secondaryForeground: '#DDE9E1',
+    muted: '#173D3A',
+    mutedForeground: '#91AAA2',
+    accent: '#D7E9C3',
+    accentForeground: '#102B2B',
+    destructive: '#E67566',
+    destructiveForeground: '#FFFFFF',
+    border: '#28514B',
+    input: '#28514B',
+    // Extended tokens
+    success: '#4CAF50',
+    successForeground: '#FFFFFF',
+    warning: '#FF9800',
+    warningForeground: '#071B1C',
+    info: '#2196F3',
+    infoForeground: '#FFFFFF',
+    overlay: 'rgba(7, 27, 28, 0.85)',
+    shimmer: 'rgba(244, 163, 64, 0.08)',
+    fog: '#0C6B70',
+    gradientStart: '#0B3030',
+    gradientEnd: '#071B1C',
+    // Badge rarities
+    rarityCommon: '#91AAA2',
+    rarityRare: '#4FC3F7',
+    rarityEpic: '#AB47BC',
+    rarityLegendary: '#FFD54F',
+  },
+  dark: {
+    text: '#F4F7F3',
+    tint: '#F4A340',
+    background: '#050F10',
+    foreground: '#F4F7F3',
+    card: '#0C2222',
+    cardForeground: '#F4F7F3',
+    primary: '#F4A340',
+    primaryForeground: '#050F10',
+    secondary: '#122E2C',
+    secondaryForeground: '#DDE9E1',
+    muted: '#122E2C',
+    mutedForeground: '#7A9A91',
+    accent: '#C5D9B0',
+    accentForeground: '#0C2222',
+    destructive: '#E67566',
+    destructiveForeground: '#FFFFFF',
+    border: '#1E3F3A',
+    input: '#1E3F3A',
+    success: '#4CAF50',
+    successForeground: '#FFFFFF',
+    warning: '#FF9800',
+    warningForeground: '#050F10',
+    info: '#2196F3',
+    infoForeground: '#FFFFFF',
+    overlay: 'rgba(5, 15, 16, 0.9)',
+    shimmer: 'rgba(244, 163, 64, 0.06)',
+    fog: '#0A5A5E',
+    gradientStart: '#081F20',
+    gradientEnd: '#050F10',
+    rarityCommon: '#7A9A91',
+    rarityRare: '#4FC3F7',
+    rarityEpic: '#AB47BC',
+    rarityLegendary: '#FFD54F',
   },
   radius: 18,
 };

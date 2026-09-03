@@ -4,6 +4,9 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { AppProvider } from '@/contexts/AppContext';
+import { I18nProvider } from '@/i18n';
+import { ToastProvider } from '@/components/ui/Toast';
 import {
   Inter_400Regular,
   Inter_500Medium,
@@ -21,8 +24,11 @@ const queryClient = new QueryClient();
 
 function RootLayoutNav() {
   return (
-      <Stack screenOptions={{ headerShown: false, headerBackTitle: 'Back' }}>
-      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+    <Stack screenOptions={{ headerShown: false, animation: 'fade' }}>
+      <Stack.Screen name="index" />
+      <Stack.Screen name="(onboarding)" />
+      <Stack.Screen name="(tabs)" />
+      <Stack.Screen name="+not-found" />
     </Stack>
   );
 }
@@ -43,5 +49,23 @@ export default function RootLayout() {
 
   if (!fontsLoaded && !fontError) return null;
 
-  return <SafeAreaProvider><ErrorBoundary><QueryClientProvider client={queryClient}><GestureHandlerRootView style={{ flex: 1 }}><KeyboardProvider><RootLayoutNav /></KeyboardProvider></GestureHandlerRootView></QueryClientProvider></ErrorBoundary></SafeAreaProvider>;
+  return (
+    <SafeAreaProvider>
+      <ErrorBoundary>
+        <I18nProvider>
+          <AppProvider>
+            <QueryClientProvider client={queryClient}>
+              <GestureHandlerRootView style={{ flex: 1 }}>
+                <KeyboardProvider>
+                  <ToastProvider>
+                    <RootLayoutNav />
+                  </ToastProvider>
+                </KeyboardProvider>
+              </GestureHandlerRootView>
+            </QueryClientProvider>
+          </AppProvider>
+        </I18nProvider>
+      </ErrorBoundary>
+    </SafeAreaProvider>
+  );
 }
