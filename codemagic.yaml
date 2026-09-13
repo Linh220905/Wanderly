@@ -1,0 +1,49 @@
+workflows:
+  ios-release:
+    name: iOS TestFlight Release
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      node: 20.x
+      pnpm: 9.x
+      groups:
+        - app_store_credentials # Nhóm biến môi trường chứa API Key Apple nếu có
+      vars:
+        APP_STORE_APPLE_ID: 6742516428 # Hoặc để tự động theo Bundle ID
+        BUNDLE_ID: "com.wanderly.fogofwar"
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: main
+          include: true
+          source: true
+    scripts:
+      - name: Install pnpm & dependencies
+        script: |
+          npm install -g pnpm@9
+          pnpm install --frozen-lockfile=false
+      - name: Expo Prebuild (Generate iOS Native Project)
+        script: |
+          cd artifacts/wanderly
+          npx expo prebuild --platform ios --clean
+      - name: Set up code signing settings on Xcode project
+        script: |
+          cd artifacts/wanderly/ios
+          xcode-project use-profiles
+      - name: Build IPA for App Store
+        script: |
+          cd artifacts/wanderly/ios
+          xcode-project build-ipa \
+            --workspace "$(find . -maxdepth 1 -name '*.xcworkspace' | head -n 1)" \
+            --scheme "$(find . -maxdepth 1 -name '*.xcworkspace' | sed 's/\.xcworkspace//' | sed 's/^\.\///')" \
+            --config Release
+    artifacts:
+      - artifacts/wanderly/ios/build/remote-build/Build/Products/Release-iphoneos/*.ipa
+      - artifacts/wanderly/dist/**/*
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      app_store_connect:
+        auth: integration # Sử dụng kết nối App Store Connect đã lưu trong Codemagic UI
+        submit_to_testflight: true
+        expire_in_days: 90
