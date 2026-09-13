@@ -8,8 +8,7 @@ workflows:
     environment:
       ios_signing:
         distribution_type: app_store
-        bundle_identifiers:
-          - com.wanderly.fogofwar
+        bundle_identifier: com.wanderly.fogofwar
       node: latest
       vars:
         BUNDLE_ID: "com.wanderly.fogofwar"
