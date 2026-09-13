@@ -26,7 +26,8 @@ workflows:
       - name: Expo Prebuild (Generate iOS Native Project)
         script: |
           cd artifacts/wanderly
-          npx expo prebuild --platform ios --clean
+          npx expo prebuild --platform ios --clean --no-install
+          cd ios && pod install
       - name: Set up code signing settings on Xcode project
         script: |
           cd artifacts/wanderly/ios
