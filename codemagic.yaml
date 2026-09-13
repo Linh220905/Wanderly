@@ -10,8 +10,8 @@ workflows:
         distribution_type: app_store
         bundle_identifier: com.wanderly.fogofwar
       node: latest
-      vars:
-        BUNDLE_ID: "com.wanderly.fogofwar"
+      xcode: latest
+      cocoapods: default
     triggering:
       events:
         - push
@@ -24,7 +24,7 @@ workflows:
         script: |
           npm install -g pnpm@9 --force
           pnpm install --no-frozen-lockfile
-      - name: Expo Prebuild (Generate iOS Native Project)
+      - name: Expo Prebuild
         script: |
           cd artifacts/wanderly
           npx expo prebuild --platform ios --clean --no-install
@@ -38,7 +38,7 @@ workflows:
           cd artifacts/wanderly/ios
           xcode-project build-ipa \
             --workspace "$(find . -maxdepth 1 -name '*.xcworkspace' | head -n 1)" \
-            --scheme "$(find . -maxdepth 1 -name '*.xcworkspace' | sed 's/\.xcworkspace//' | sed 's/^\.\///')" \
+            --scheme "Wanderly" \
             --config Release
     artifacts:
       - artifacts/wanderly/ios/build/remote-build/Build/Products/Release-iphoneos/*.ipa
