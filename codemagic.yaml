@@ -21,9 +21,8 @@ workflows:
     scripts:
       - name: Install pnpm & dependencies
         script: |
-          corepack enable
-          corepack prepare pnpm@latest --activate
-          pnpm install --frozen-lockfile=false
+          npm install -g pnpm@9 --force
+          pnpm install --no-frozen-lockfile
       - name: Expo Prebuild (Generate iOS Native Project)
         script: |
           cd artifacts/wanderly
