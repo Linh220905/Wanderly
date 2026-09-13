@@ -1,577 +1,1137 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
+import { WebView, WebViewMessageEvent } from 'react-native-webview';
 import * as Location from 'expo-location';
-import MapView, { Marker, Polyline, Region } from 'react-native-maps';
+import * as Haptics from 'expo-haptics';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Feather } from '@expo/vector-icons';
-import colors from '@/constants/colors';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useColors } from '@/hooks/useColors';
+import typography from '@/constants/typography';
+import { radii, spacing } from '@/constants/spacing';
+import { MAP_HTML_SOURCE } from './MapEngineBundle';
+import { CheckpointDiscoveryModal } from './modals/CheckpointDiscoveryModal';
+import { MysteryHikeModal } from './modals/MysteryHikeModal';
+import {
+  type Checkpoint,
+  generateNearbyCheckpoints,
+  checkProximityDiscoveries,
+  getNearestUndiscovered,
+  calculateBearing,
+} from '@/services/CheckpointService';
+import {
+  generateDailyMysteryHike,
+  checkMysteryHikeArrival,
+  metersBetweenCoords,
+} from '@/services/TerritoryService';
+import type { MysteryHikeQuest } from '@/models/types';
+import { calculateComboMultiplier } from '@/services/GamificationService';
 
 export type MapCoordinate = { latitude: number; longitude: number };
 type MapState = { distance: number; explored: number; coins: number };
 
-const ROUTE_STORAGE_KEY = 'wanderly-revealed-route';
-const REVEAL_AREA_SQUARE_METERS = 400;
-const REVEAL_RADIUS_METERS = Math.sqrt(REVEAL_AREA_SQUARE_METERS / Math.PI);
-const MIN_ROUTE_POINT_DISTANCE_METERS = 18;
-const MAX_ACCEPTED_SPEED_METERS_PER_SECOND = 12;
-const MAX_RENDERED_ROUTE_POINTS = 260;
-const MAX_FOG_REVEALS = 24;
-const FOG_BANDS = 96;
-
-const defaultRegion: Region = {
-  latitude: 16.0544,
-  longitude: 108.2022,
-  latitudeDelta: 0.055,
-  longitudeDelta: 0.055,
-};
-
-const mapStyle = [
-  { elementType: 'geometry', stylers: [{ color: '#DDE8D9' }] },
-  { elementType: 'labels.text.fill', stylers: [{ color: '#50665A' }] },
-  { elementType: 'labels.text.stroke', stylers: [{ color: '#EEF4EA' }] },
-  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#83C9D1' }] },
-  { featureType: 'water', elementType: 'labels.text.fill', stylers: [{ color: '#3D8993' }] },
-  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#F4E5C5' }] },
-  { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#D1B985' }] },
-  { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#EBCB8A' }] },
-  { featureType: 'poi.park', elementType: 'geometry', stylers: [{ color: '#A8CDA1' }] },
-  { featureType: 'poi.park', elementType: 'labels.text.fill', stylers: [{ color: '#477A58' }] },
-  { featureType: 'poi', elementType: 'labels.icon', stylers: [{ saturation: 20 }] },
-];
+const PERSISTED_ROUTE_KEY = 'wanderly_revealed_route_v1';
+const PERSISTED_DISCOVERED_KEY = 'wanderly_discovered_checkpoints_v1';
 
 function metersBetween(a: MapCoordinate, b: MapCoordinate) {
-  const earthRadius = 6371000;
-  const lat1 = a.latitude * Math.PI / 180;
-  const lat2 = b.latitude * Math.PI / 180;
-  const dLat = (b.latitude - a.latitude) * Math.PI / 180;
-  const dLon = (b.longitude - a.longitude) * Math.PI / 180;
-  const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
-  return earthRadius * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+  const R = 6371000;
+  const dLat = ((b.latitude - a.latitude) * Math.PI) / 180;
+  const dLon = ((b.longitude - a.longitude) * Math.PI) / 180;
+  const lat1 = (a.latitude * Math.PI) / 180;
+  const lat2 = (b.latitude * Math.PI) / 180;
+  const h =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  return R * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
 }
-
-// Reduce the number of fog holes so long walks stay smooth on a real device.
-function compactRoute(points: MapCoordinate[]) {
-  const compacted: MapCoordinate[] = [];
-  points.forEach(point => {
-    const previous = compacted[compacted.length - 1];
-    if (!previous || metersBetween(previous, point) >= MIN_ROUTE_POINT_DISTANCE_METERS) {
-      compacted.push(point);
-    }
-  });
-  return compacted;
-}
-
-function samplePoints(points: MapCoordinate[], maxPoints: number) {
-  if (points.length <= maxPoints) return points;
-  const step = Math.ceil(points.length / maxPoints);
-  return points.filter((_, index) => index % step === 0 || index === points.length - 1);
-}
-
-type FogPoint = { x: number; y: number };
-type RevealData = { radius: number; points: FogPoint[] };
-type FogSegment = { left: number; top: number; width: number; height: number };
-
-const FogRevealOverlay = React.memo(function FogRevealOverlay({
-  region,
-  points,
-  current,
-  width,
-  height,
-}: {
-  region: Region;
-  points: MapCoordinate[];
-  current: MapCoordinate;
-  width: number;
-  height: number;
-}) {
-  const revealPoints = useMemo<RevealData>(() => {
-    if (!width || !height || !region.latitudeDelta || !region.longitudeDelta) {
-      return { radius: 0, points: [] };
-    }
-    const north = region.latitude + region.latitudeDelta / 2;
-    const west = region.longitude - region.longitudeDelta / 2;
-    // This radius belongs to the map, not the screen: zooming in makes the real
-    // revealed area larger on screen; zooming out makes it disappear naturally.
-    const radiusPixels = (REVEAL_RADIUS_METERS / (region.latitudeDelta * 111000)) * height;
-    const project = (point: MapCoordinate) => {
-      const x = ((point.longitude - west) / region.longitudeDelta) * width;
-      const y = ((north - point.latitude) / region.latitudeDelta) * height;
-      return { x, y };
-    };
-    const projectedPoints = samplePoints(points, MAX_FOG_REVEALS).map(project);
-    const visiblePoints = projectedPoints.filter(point => point.x > -radiusPixels && point.x < width + radiusPixels && point.y > -radiusPixels && point.y < height + radiusPixels);
-    return {
-      radius: radiusPixels,
-      points: visiblePoints,
-    };
-  }, [current, height, points, region, width]);
-
-  const projectedCurrent = useMemo(() => {
-    if (!width || !height || !region.latitudeDelta || !region.longitudeDelta) return { x: 0, y: 0 };
-    const north = region.latitude + region.latitudeDelta / 2;
-    const west = region.longitude - region.longitudeDelta / 2;
-    return {
-      x: ((current.longitude - west) / region.longitudeDelta) * width,
-      y: ((north - current.latitude) / region.latitudeDelta) * height,
-    };
-  }, [current, height, region, width]);
-  const fogSegments = useMemo<FogSegment[]>(() => {
-    if (!width || !height || !revealPoints.radius) return [];
-    const holes = [projectedCurrent, ...revealPoints.points];
-    const bandHeight = height / FOG_BANDS;
-    const segments: FogSegment[] = [];
-
-    for (let row = 0; row < FOG_BANDS; row += 1) {
-      const y = row * bandHeight + bandHeight / 2;
-      const intervals = holes
-        .map(point => {
-          const distanceY = y - point.y;
-          if (Math.abs(distanceY) >= revealPoints.radius) return null;
-          const reach = Math.sqrt(revealPoints.radius ** 2 - distanceY ** 2);
-          return [Math.max(0, point.x - reach), Math.min(width, point.x + reach)] as const;
-        })
-        .filter((interval): interval is readonly [number, number] => Boolean(interval && interval[1] > interval[0]))
-        .sort((a, b) => a[0] - b[0]);
-
-      let cursor = 0;
-      intervals.forEach(([left, right]) => {
-        if (left > cursor) segments.push({ left: cursor, top: row * bandHeight, width: left - cursor, height: bandHeight + 1 });
-        cursor = Math.max(cursor, right);
-      });
-      if (cursor < width) segments.push({ left: cursor, top: row * bandHeight, width: width - cursor, height: bandHeight + 1 });
-    }
-
-    return segments;
-  }, [height, projectedCurrent, revealPoints, width]);
-
-  if (!width || !height) return null;
-
-  return (
-    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-      {fogSegments.map((segment, index) => (
-        <View key={'fog-segment-' + index} style={[styles.fogSegment, segment]} />
-      ))}
-    </View>
-  );
-});
-
-const checkpoints = [
-  { id: 'dragon-bridge', title: 'Dragon Bridge', kind: 'LANDMARK', reward: '120 XP', offset: { latitude: 0.006, longitude: -0.007 } },
-  { id: 'river-cache', title: 'Riverside Cache', kind: 'RARE CHEST', reward: '80 coins', offset: { latitude: -0.004, longitude: 0.009 } },
-  { id: 'city-fragment', title: 'City Fragment', kind: 'FRAGMENT', reward: '1 fragment', offset: { latitude: 0.008, longitude: 0.008 } },
-];
-
-const MapCanvas = React.memo(function MapCanvas({
-  mapRef,
-  initialRegion,
-  route,
-  current,
-  hasLocationPermission,
-  followUser,
-  onPanDrag,
-  onRegionChangeComplete,
-}: {
-  mapRef: React.RefObject<MapView | null>;
-  initialRegion: Region;
-  route: MapCoordinate[];
-  current: MapCoordinate;
-  hasLocationPermission: boolean;
-  followUser: boolean;
-  onPanDrag: () => void;
-  onRegionChangeComplete: (region: Region) => void;
-}) {
-  return (
-    <MapView
-      ref={mapRef}
-      style={StyleSheet.absoluteFill}
-      initialRegion={initialRegion}
-      onRegionChangeComplete={onRegionChangeComplete}
-      onPanDrag={onPanDrag}
-      scrollEnabled
-      zoomEnabled
-      zoomControlEnabled
-      minZoomLevel={8}
-      maxZoomLevel={20}
-      showsUserLocation={false}
-      showsMyLocationButton={false}
-      showsScale
-      showsCompass
-      toolbarEnabled={false}
-      rotateEnabled
-      pitchEnabled={false}
-      mapType="standard"
-      userInterfaceStyle="light"
-      customMapStyle={mapStyle}
-    >
-      {route.length > 1 && (
-        <Polyline
-          coordinates={route}
-          strokeColor={colors.light.primary}
-          strokeWidth={4}
-          lineCap="round"
-          lineJoin="round"
-        />
-      )}
-      {hasLocationPermission && !followUser && (
-        <Marker coordinate={current} tracksViewChanges={false} anchor={{ x: 0.5, y: 0.5 }}>
-          <View style={styles.userMarker}>
-            <View style={styles.userDot} />
-          </View>
-        </Marker>
-      )}
-      {checkpoints.map(checkpoint => (
-        <Marker
-          key={checkpoint.id}
-          tracksViewChanges={false}
-          coordinate={{
-            latitude: current.latitude + checkpoint.offset.latitude,
-            longitude: current.longitude + checkpoint.offset.longitude,
-          }}
-          anchor={{ x: 0.5, y: 0.5 }}
-          title={checkpoint.title}
-          description={checkpoint.kind + ' · ' + checkpoint.reward}
-        >
-          <View style={styles.checkpoint}>
-            <Feather name={checkpoint.kind === 'LANDMARK' ? 'map-pin' : 'gift'} size={13} color={colors.light.primaryForeground} />
-          </View>
-        </Marker>
-      ))}
-    </MapView>
-  );
-});
 
 export function LiveMap({
   state,
-  route,
-  current,
   active,
   seconds,
   start,
   pause,
   finish,
+  onCheckpointDiscovered,
 }: {
   state: MapState;
-  route?: MapCoordinate[];
-  current?: MapCoordinate;
   active: boolean;
   seconds: number;
   start: () => void;
   pause: () => void;
-  finish: () => void;
+  finish: (sessionResult?: {
+    distanceMeters: number;
+    route: MapCoordinate[];
+    cellsCount: number;
+    checkpointsDiscovered: string[];
+    averageSpeedKmh: number;
+  }) => void;
+  onCheckpointDiscovered?: (checkpoint: Checkpoint) => void;
 }) {
-  const [userLocation, setUserLocation] = useState<MapCoordinate | null>(current ?? null);
-  const [region, setRegion] = useState<Region>(current ? { ...defaultRegion, ...current } : defaultRegion);
-  const [hasLocationPermission, setHasLocationPermission] = useState(false);
-  const [requestingLocation, setRequestingLocation] = useState(false);
+  const insets = useSafeAreaInsets();
+  const c = useColors();
+  const webViewRef = useRef<any>(null);
+  const [isSimulating, setIsSimulating] = useState(false);
   const [followUser, setFollowUser] = useState(true);
-  const [persistedRoute, setPersistedRoute] = useState<MapCoordinate[]>([]);
-  const [liveRoute, setLiveRoute] = useState<MapCoordinate[]>([]);
-  const [liveDistance, setLiveDistance] = useState(0);
-  const [mapSize, setMapSize] = useState({ width: 0, height: 0 });
-  const initialRegionRef = useRef<Region>(current ? { ...defaultRegion, ...current } : defaultRegion);
-  const mapRef = useRef<MapView | null>(null);
-  const lastCameraPoint = useRef<MapCoordinate | null>(null);
-  const lastPersistedAt = useRef(0);
-  const distanceAccumulator = useRef(0);
+  const [isMapReady, setIsMapReady] = useState(false);
 
-  const mapCurrent = useMemo(() => userLocation ?? current ?? { latitude: region.latitude, longitude: region.longitude }, [current, region.latitude, region.longitude, userLocation]);
-  const displayedRoute = useMemo(() => route ?? [...persistedRoute, ...liveRoute], [liveRoute, persistedRoute, route]);
-  const revealedPoints = useMemo(() => compactRoute(displayedRoute), [displayedRoute]);
-  const renderedRoute = useMemo(() => samplePoints(revealedPoints, MAX_RENDERED_ROUTE_POINTS), [revealedPoints]);
+  // Live Strava-like metrics tracking
+  const [sessionDistanceMeters, setSessionDistanceMeters] = useState(0);
+  const [currentSpeedKmh, setCurrentSpeedKmh] = useState(0);
+  const sessionRouteRef = useRef<MapCoordinate[]>([]);
+  const lastTrackedPoint = useRef<MapCoordinate | null>(null);
+  const userGpsRef = useRef<MapCoordinate | null>(null);
 
+  // Checkpoints & Mystery Radar State
+  const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
+  const [discoveredIds, setDiscoveredIds] = useState<string[]>([]);
+  const [sessionDiscoveredIds, setSessionDiscoveredIds] = useState<string[]>([]);
+  const [inspectedCheckpoint, setInspectedCheckpoint] = useState<Checkpoint | null>(null);
+  const [radarInfo, setRadarInfo] = useState<{
+    title: string;
+    distance: number;
+    bearing: string;
+    type: string;
+    isMystery?: boolean;
+    checkpoint?: Checkpoint;
+  } | null>(null);
+
+  // Mystery Hike State
+  const [mysteryQuest, setMysteryQuest] = useState<MysteryHikeQuest | null>(null);
+  const [isMysteryModalOpen, setIsMysteryModalOpen] = useState(false);
+  const [completedMysteryIds, setCompletedMysteryIds] = useState<string[]>([]);
+
+  // Discovery Banner Animation
+  const [recentFound, setRecentFound] = useState<Checkpoint | null>(null);
+  const bannerAnim = useRef(new Animated.Value(-120)).current;
+
+  // Active exploration zone progress percentage
+  // Only counts revealed route points INSIDE exploration boundary circle (800m)
+  const [zonePercent, setZonePercent] = useState(0);
+
+  // Send commands to WebView Map Engine
+  const sendCommand = useCallback((command: object) => {
+    const js = `window.handleRNMessage && window.handleRNMessage(${JSON.stringify(command)}); true;`;
+    webViewRef.current?.injectJavaScript(js);
+  }, []);
+
+  // Load persisted lifetime route & discovered checkpoints on mount
   useEffect(() => {
-    if (!liveRoute.length || route || Date.now() - lastPersistedAt.current < 10000) return;
-    lastPersistedAt.current = Date.now();
-    AsyncStorage.setItem(ROUTE_STORAGE_KEY, JSON.stringify([...persistedRoute, ...liveRoute])).catch(() => undefined);
-  }, [liveRoute, persistedRoute, route]);
-
-  const handlePanDrag = useCallback(() => setFollowUser(false), []);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    AsyncStorage.getItem(ROUTE_STORAGE_KEY)
-      .then(value => {
-        if (cancelled || !value) return;
+    if (!isMapReady) return;
+    AsyncStorage.getItem(PERSISTED_ROUTE_KEY).then(saved => {
+      if (saved) {
         try {
-          const saved = JSON.parse(value) as MapCoordinate[];
-          if (Array.isArray(saved)) setPersistedRoute(saved);
-        } catch {
-          // Ignore corrupt local route data and allow a new route to start.
-        }
-      })
-      .catch(() => undefined);
-
-    (async () => {
-      const permission = await Location.getForegroundPermissionsAsync();
-      if (cancelled) return;
-      const granted = permission.status === Location.PermissionStatus.GRANTED;
-      setHasLocationPermission(granted);
-      if (!granted || current) return;
-
-      const position = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-      });
-      if (cancelled) return;
-      const point = { latitude: position.coords.latitude, longitude: position.coords.longitude };
-      setUserLocation(point);
-      setRegion(previous => ({ ...previous, ...point }));
-      mapRef.current?.animateCamera({ center: point }, { duration: 350 });
-      lastCameraPoint.current = point;
-    })().catch(() => undefined);
-
-    return () => { cancelled = true; };
-  }, [current]);
-
-  useEffect(() => {
-    if (!active || route || !hasLocationPermission) return;
-
-    let cancelled = false;
-    let subscription: Location.LocationSubscription | undefined;
-    let lastPoint: MapCoordinate | undefined;
-    let lastTimestamp = 0;
-
-    Location.watchPositionAsync(
-      {
-        accuracy: Location.Accuracy.High,
-        distanceInterval: 3,
-        timeInterval: 2000,
-        mayShowUserSettingsDialog: true,
-      },
-      position => {
-        const accuracy = position.coords.accuracy ?? -1;
-        const timestamp = position.timestamp;
-        if (accuracy < 0 || accuracy > 50 || timestamp <= lastTimestamp) return;
-
-        const point = { latitude: position.coords.latitude, longitude: position.coords.longitude };
-        setUserLocation(previous => previous && metersBetween(previous, point) < 5 ? previous : point);
-        if (followUser && (!lastCameraPoint.current || metersBetween(lastCameraPoint.current, point) >= 8)) {
-          setRegion(previous => ({ ...previous, ...point }));
-          mapRef.current?.animateCamera({ center: point }, { duration: 350 });
-          lastCameraPoint.current = point;
-        }
-
-        if (lastPoint) {
-          const segment = metersBetween(lastPoint, point);
-          const elapsed = Math.max((timestamp - lastTimestamp) / 1000, 1);
-          const speed = segment / elapsed;
-          if (segment < 2 || segment > 250 || speed > MAX_ACCEPTED_SPEED_METERS_PER_SECOND) return;
-          distanceAccumulator.current += segment;
-          if (distanceAccumulator.current >= 10) {
-            const accumulated = distanceAccumulator.current;
-            distanceAccumulator.current = 0;
-            setLiveDistance(value => value + accumulated);
+          const pts = JSON.parse(saved);
+          if (Array.isArray(pts) && pts.length > 0) {
+            sendCommand({ type: 'LOAD_HISTORICAL_ROUTE', points: pts });
           }
-        }
+        } catch {}
+      }
+    });
 
-        lastPoint = point;
-        lastTimestamp = timestamp;
-        setLiveRoute(previous => {
-          const previousPoint = previous[previous.length - 1];
-          if (previousPoint && metersBetween(previousPoint, point) < MIN_ROUTE_POINT_DISTANCE_METERS) return previous;
-          const next = [...previous, point];
-          return next;
+    AsyncStorage.getItem(PERSISTED_DISCOVERED_KEY).then(saved => {
+      if (saved) {
+        try {
+          const ids = JSON.parse(saved);
+          if (Array.isArray(ids)) setDiscoveredIds(ids);
+        } catch {}
+      }
+    });
+
+    AsyncStorage.getItem('wanderly_completed_mystery_v1').then(saved => {
+      if (saved) {
+        try {
+          const ids = JSON.parse(saved);
+          if (Array.isArray(ids)) setCompletedMysteryIds(ids);
+        } catch {}
+      }
+    });
+  }, [isMapReady, sendCommand]);
+
+  // Generate & sync checkpoints & mystery quest with WebView map
+  const refreshCheckpoints = useCallback(
+    (loc: MapCoordinate) => {
+      const list = generateNearbyCheckpoints(loc, discoveredIds);
+      setCheckpoints(list);
+      sendCommand({ type: 'SET_CHECKPOINTS', checkpoints: list });
+
+      // Mystery Hike
+      const quest = generateDailyMysteryHike(loc, completedMysteryIds);
+      setMysteryQuest(quest);
+      sendCommand({ type: 'SET_MYSTERY_QUEST', quest });
+
+      if (quest && !quest.isCompleted) {
+        const dist = Math.round(metersBetweenCoords(loc, quest.targetCoordinate));
+        const bearing = calculateBearing(loc, quest.targetCoordinate);
+        setRadarInfo({
+          title: quest.titleVi || quest.title,
+          distance: dist,
+          bearing,
+          type: 'mystery',
+          isMystery: true,
         });
-      },
-    )
-      .then(value => {
-        if (cancelled) value.remove();
-        else subscription = value;
-      })
-      .catch(() => undefined);
+      } else {
+        const nearest = getNearestUndiscovered(loc, list);
+        if (nearest) {
+          const bearing = calculateBearing(loc, nearest.checkpoint.coordinate);
+          setRadarInfo({
+            title: nearest.checkpoint.title,
+            distance: nearest.distance,
+            bearing,
+            type: nearest.checkpoint.type,
+            isMystery: false,
+            checkpoint: nearest.checkpoint,
+          });
+        } else {
+          setRadarInfo(null);
+        }
+      }
+    },
+    [discoveredIds, completedMysteryIds, sendCommand],
+  );
+
+  // Trigger Proximity Auto-Collect & Haptic Feedback
+  const checkProximity = useCallback(
+    (loc: MapCoordinate) => {
+      if (checkpoints.length === 0) return;
+      const found = checkProximityDiscoveries(loc, checkpoints);
+
+      if (found.length > 0) {
+        found.forEach(cp => {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+          sendCommand({ type: 'REMOVE_CHECKPOINT', id: cp.id });
+
+          setDiscoveredIds(prev => {
+            const next = [...prev, cp.id];
+            AsyncStorage.setItem(PERSISTED_DISCOVERED_KEY, JSON.stringify(next)).catch(() => {});
+            return next;
+          });
+          setSessionDiscoveredIds(prev => [...prev, cp.id]);
+
+          setRecentFound(cp);
+          Animated.sequence([
+            Animated.timing(bannerAnim, { toValue: insets.top + 8, duration: 320, useNativeDriver: true }),
+            Animated.delay(3500),
+            Animated.timing(bannerAnim, { toValue: -120, duration: 250, useNativeDriver: true }),
+          ]).start(() => setRecentFound(null));
+
+          onCheckpointDiscovered?.(cp);
+        });
+      }
+    },
+    [checkpoints, sendCommand, bannerAnim, insets.top, onCheckpointDiscovered],
+  );
+
+  const toggleSimulation = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    if (!isSimulating) {
+      setIsSimulating(true);
+      setFollowUser(true);
+      sendCommand({ type: 'START_SIMULATION' });
+      if (!active) start();
+    } else {
+      setIsSimulating(false);
+      sendCommand({ type: 'STOP_SIMULATION' });
+    }
+  };
+
+  const handleRecenter = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    setFollowUser(true);
+    sendCommand({ type: 'RECENTER' });
+  };
+
+  const handleZoom = (type: 'IN' | 'OUT') => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    sendCommand({ type: type === 'IN' ? 'ZOOM_IN' : 'ZOOM_OUT' });
+  };
+
+  const handleFinishSession = () => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
+    if (sessionRouteRef.current.length > 0) {
+      AsyncStorage.getItem(PERSISTED_ROUTE_KEY).then(saved => {
+        const prev = saved ? JSON.parse(saved) : [];
+        const combined = [...prev, ...sessionRouteRef.current];
+        AsyncStorage.setItem(PERSISTED_ROUTE_KEY, JSON.stringify(combined)).catch(() => {});
+      });
+    }
+
+    const avgSpeed = seconds > 0 ? (sessionDistanceMeters / seconds) * 3.6 : 5.0;
+
+    finish({
+      distanceMeters: Math.round(sessionDistanceMeters),
+      route: sessionRouteRef.current,
+      cellsCount: Math.max(1, Math.floor(sessionDistanceMeters / 30)),
+      checkpointsDiscovered: sessionDiscoveredIds,
+      averageSpeedKmh: avgSpeed,
+    });
+
+    setSessionDistanceMeters(0);
+    setCurrentSpeedKmh(0);
+    setSessionDiscoveredIds([]);
+    sessionRouteRef.current = [];
+    lastTrackedPoint.current = null;
+  };
+
+  // Initial GPS on mount
+  useEffect(() => {
+    Location.requestForegroundPermissionsAsync().then(perm => {
+      if (perm.status !== Location.PermissionStatus.GRANTED) return;
+      Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High }).then(pos => {
+        const coord = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
+        userGpsRef.current = coord;
+        if (isMapReady) {
+          sendCommand({
+            type: 'SET_LOCATION',
+            lat: coord.latitude,
+            lng: coord.longitude,
+          });
+          refreshCheckpoints(coord);
+        }
+      });
+    });
+  }, [isMapReady, sendCommand, refreshCheckpoints]);
+
+  // Real GPS live tracking
+  useEffect(() => {
+    if (isSimulating) return;
+
+    let subscription: Location.LocationSubscription | null = null;
+    let cancelled = false;
+
+    Location.requestForegroundPermissionsAsync().then(perm => {
+      if (cancelled || perm.status !== Location.PermissionStatus.GRANTED) return;
+
+      Location.watchPositionAsync(
+        {
+          accuracy: Location.Accuracy.High,
+          distanceInterval: 2,
+          timeInterval: 1000,
+        },
+        pos => {
+          if (cancelled) return;
+          const coord = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
+          const accuracy = pos.coords.accuracy ?? 100;
+          const speed = pos.coords.speed ?? 0;
+
+          if (accuracy > 30) return;
+
+          userGpsRef.current = coord;
+
+          sendCommand({
+            type: 'SET_LOCATION',
+            lat: coord.latitude,
+            lng: coord.longitude,
+          });
+
+          checkProximity(coord);
+
+          if (checkpoints.length === 0) {
+            refreshCheckpoints(coord);
+          } else if (mysteryQuest && !mysteryQuest.isCompleted) {
+            const dist = Math.round(metersBetweenCoords(coord, mysteryQuest.targetCoordinate));
+            const bearing = calculateBearing(coord, mysteryQuest.targetCoordinate);
+            setRadarInfo({
+              title: mysteryQuest.titleVi || mysteryQuest.title,
+              distance: dist,
+              bearing,
+              type: 'mystery',
+              isMystery: true,
+            });
+          } else {
+            const nearest = getNearestUndiscovered(coord, checkpoints);
+            if (nearest) {
+              const bearing = calculateBearing(coord, nearest.checkpoint.coordinate);
+              setRadarInfo({
+                title: nearest.checkpoint.title,
+                distance: nearest.distance,
+                bearing,
+                type: nearest.checkpoint.type,
+                isMystery: false,
+                checkpoint: nearest.checkpoint,
+              });
+            } else {
+              setRadarInfo(null);
+            }
+          }
+
+          if (active) {
+            if (lastTrackedPoint.current) {
+              const dist = metersBetween(lastTrackedPoint.current, coord);
+              if (dist >= 2 && dist <= 200) {
+                setSessionDistanceMeters(prev => prev + dist);
+                sessionRouteRef.current.push(coord);
+              }
+            } else {
+              sessionRouteRef.current.push(coord);
+            }
+            lastTrackedPoint.current = coord;
+
+            const speedKmh = Math.max(0, speed * 3.6);
+            setCurrentSpeedKmh(speedKmh);
+          }
+        },
+      ).then(sub => {
+        if (cancelled) sub.remove();
+        else subscription = sub;
+      });
+    });
 
     return () => {
       cancelled = true;
       subscription?.remove();
     };
-  }, [active, followUser, hasLocationPermission, persistedRoute, route]);
+  }, [active, isSimulating, sendCommand, checkProximity, refreshCheckpoints, checkpoints]);
 
-  const handleStart = async () => {
-    if (requestingLocation) return;
-    setRequestingLocation(true);
+  const onMessage = (event: WebViewMessageEvent) => {
     try {
-      let permission = await Location.getForegroundPermissionsAsync();
-      if (permission.status !== Location.PermissionStatus.GRANTED) {
-        permission = await Location.requestForegroundPermissionsAsync();
-      }
-      if (permission.status !== Location.PermissionStatus.GRANTED) return;
+      const data = JSON.parse(event.nativeEvent.data);
+      if (data.type === 'FOLLOW_CHANGED') {
+        setFollowUser(data.follow);
+      } else if (data.type === 'MAP_READY') {
+        setIsMapReady(true);
+        if (userGpsRef.current) {
+          sendCommand({
+            type: 'SET_LOCATION',
+            lat: userGpsRef.current.latitude,
+            lng: userGpsRef.current.longitude,
+          });
+          refreshCheckpoints(userGpsRef.current);
+        }
+      } else if (data.type === 'GPS_UPDATE') {
+        const coord: MapCoordinate = { latitude: data.lat, longitude: data.lng };
+        userGpsRef.current = coord;
+        checkProximity(coord);
 
-      setHasLocationPermission(true);
-      setFollowUser(true);
-      const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
-      const point = { latitude: position.coords.latitude, longitude: position.coords.longitude };
-      setUserLocation(point);
-      setRegion(previous => ({ ...previous, ...point }));
-      mapRef.current?.animateCamera({ center: point }, { duration: 350 });
-      lastCameraPoint.current = point;
-      start();
-    } catch {
-      // Keep the activity idle when the device cannot provide a location.
-    } finally {
-      setRequestingLocation(false);
+        if (typeof data.zonePercent === 'number') {
+          setZonePercent(data.zonePercent);
+        }
+
+        // Update Radar & Mystery distance in real time on each GPS/simulation step
+        if (mysteryQuest && !mysteryQuest.isCompleted) {
+          const dist = Math.round(metersBetweenCoords(coord, mysteryQuest.targetCoordinate));
+          const bearing = calculateBearing(coord, mysteryQuest.targetCoordinate);
+          setRadarInfo({
+            title: mysteryQuest.titleVi || mysteryQuest.title,
+            distance: dist,
+            bearing,
+            type: 'mystery',
+            isMystery: true,
+          });
+        } else if (checkpoints.length > 0) {
+          const nearest = getNearestUndiscovered(coord, checkpoints);
+          if (nearest) {
+            const bearing = calculateBearing(coord, nearest.checkpoint.coordinate);
+            setRadarInfo({
+              title: nearest.checkpoint.title,
+              distance: nearest.distance,
+              bearing,
+              type: nearest.checkpoint.type,
+              isMystery: false,
+              checkpoint: nearest.checkpoint,
+            });
+          } else {
+            setRadarInfo(null);
+          }
+        }
+
+        if (active) {
+          if (lastTrackedPoint.current) {
+            const dist = metersBetween(lastTrackedPoint.current, coord);
+            if (dist >= 0.5 && dist <= 250) {
+              setSessionDistanceMeters(prev => prev + dist);
+              sessionRouteRef.current.push(coord);
+            }
+          } else {
+            sessionRouteRef.current.push(coord);
+          }
+          lastTrackedPoint.current = coord;
+          const speedVal = data.speed ? data.speed * 3.6 : 12.6;
+          setCurrentSpeedKmh(speedVal);
+        }
+      } else if (data.type === 'SIM_STEP_METRIC') {
+        if (active) {
+          setSessionDistanceMeters(prev => prev + (data.distanceMeters || 2.0));
+          setCurrentSpeedKmh(data.speedKmh || 5.2);
+        }
+      } else if (data.type === 'CHECKPOINT_CLICK') {
+        if (data.checkpoint) {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+          setInspectedCheckpoint(data.checkpoint);
+        }
+      } else if (data.type === 'MYSTERY_HIKE_CLICK') {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+        setIsMysteryModalOpen(true);
+      }
+    } catch {}
+  };
+
+  const formattedTime = useMemo(() => {
+    const minutes = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  }, [seconds]);
+
+  const currentPaceFormatted = useMemo(() => {
+    if (sessionDistanceMeters < 20 || seconds < 5) return "--'--\"";
+    const paceSecondsPerKm = (seconds / sessionDistanceMeters) * 1000;
+    if (paceSecondsPerKm > 3600 || paceSecondsPerKm < 60) return "--'--\"";
+    const pMin = Math.floor(paceSecondsPerKm / 60);
+    const pSec = Math.floor(paceSecondsPerKm % 60);
+    return `${pMin}'${pSec.toString().padStart(2, '0')}"`;
+  }, [seconds, sessionDistanceMeters]);
+
+  const totalDistanceKm = ((state.distance * 1000 + sessionDistanceMeters) / 1000).toFixed(2);
+  const currentSessionKm = (sessionDistanceMeters / 1000).toFixed(2);
+
+  const inspectedDistance = useMemo(() => {
+    if (!inspectedCheckpoint || !userGpsRef.current) return undefined;
+    return metersBetween(userGpsRef.current, inspectedCheckpoint.coordinate);
+  }, [inspectedCheckpoint]);
+
+  const mysteryDistance = useMemo(() => {
+    if (!mysteryQuest || !userGpsRef.current) return undefined;
+    return metersBetweenCoords(userGpsRef.current, mysteryQuest.targetCoordinate);
+  }, [mysteryQuest]);
+
+  const isMysteryArrived = useMemo(() => {
+    if (!userGpsRef.current || !mysteryQuest) return false;
+    return checkMysteryHikeArrival(userGpsRef.current, mysteryQuest);
+  }, [mysteryQuest]);
+
+  const handleClaimMystery = useCallback(() => {
+    if (!mysteryQuest) return;
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    const questId = mysteryQuest.id;
+    const nextCompleted = [...completedMysteryIds, questId];
+    setCompletedMysteryIds(nextCompleted);
+    AsyncStorage.setItem('wanderly_completed_mystery_v1', JSON.stringify(nextCompleted)).catch(() => {});
+    setIsMysteryModalOpen(false);
+    setMysteryQuest(prev => (prev ? { ...prev, isCompleted: true } : null));
+  }, [mysteryQuest, completedMysteryIds]);
+
+  const comboMultiplier = useMemo(() => {
+    return calculateComboMultiplier(seconds, currentSpeedKmh);
+  }, [seconds, currentSpeedKmh]);
+
+  const getCheckpointIcon = (type: string) => {
+    switch (type) {
+      case 'landmark':
+        return 'map-pin';
+      case 'fragment':
+        return 'star';
+      case 'mystery':
+        return 'compass';
+      default:
+        return 'gift';
     }
   };
 
-  const zoomMap = (factor: number) => {
-    setFollowUser(true);
-    const nextRegion = {
-      ...region,
-      latitude: mapCurrent.latitude,
-      longitude: mapCurrent.longitude,
-      latitudeDelta: Math.max(0.0015, Math.min(0.5, region.latitudeDelta * factor)),
-      longitudeDelta: Math.max(0.0015, Math.min(0.5, region.longitudeDelta * factor)),
-    };
-    setRegion(nextRegion);
-    mapRef.current?.animateCamera({ center: mapCurrent, zoom: Math.max(8, Math.min(20, Math.log2(360 / nextRegion.longitudeDelta))) }, { duration: 260 });
-  };
-
-  const time = String(Math.floor(seconds / 60)).padStart(2, '0') + ':' + String(seconds % 60).padStart(2, '0');
-  const centerDotSize = Math.round(Math.min(30, Math.max(18, 18 * Math.sqrt(region.longitudeDelta / 0.01))));
+  const WebViewComponent = WebView as any;
 
   return (
-    <View
-      style={styles.container}
-      onLayout={event => {
-        const { width, height } = event.nativeEvent.layout;
-        if (width !== mapSize.width || height !== mapSize.height) setMapSize({ width, height });
-      }}
-    >
-      <MapCanvas
-        mapRef={mapRef}
-        initialRegion={initialRegionRef.current}
-        route={renderedRoute}
-        current={mapCurrent}
-        hasLocationPermission={hasLocationPermission}
-        followUser={followUser}
-        onPanDrag={handlePanDrag}
-        onRegionChangeComplete={setRegion}
+    <View style={[styles.container, { backgroundColor: c.background }]}>
+      {/* Map Engine Canvas / MapLibre WebView */}
+      <WebViewComponent
+        ref={webViewRef}
+        style={styles.webView}
+        originWhitelist={['*']}
+        source={{ html: MAP_HTML_SOURCE }}
+        onMessage={onMessage}
+        javaScriptEnabled
+        domStorageEnabled
+        scrollEnabled={false}
+        bounces={false}
+        overScrollMode="never"
       />
 
-      <FogRevealOverlay
-        region={region}
-        points={revealedPoints}
-        current={mapCurrent}
-        width={mapSize.width}
-        height={mapSize.height}
-      />
-
-      {hasLocationPermission && followUser && (
-        <View pointerEvents="none" style={styles.centerUserMarker}>
-          <View style={[styles.centerUserDot, { width: centerDotSize, height: centerDotSize, borderRadius: centerDotSize / 2 }]} />
-        </View>
+      {/* Discovery Pop-down Banner */}
+      {recentFound && (
+        <Animated.View
+          style={[
+            styles.discoveryBanner,
+            {
+              backgroundColor: c.secondary,
+              borderColor: c.primary,
+              transform: [{ translateY: bannerAnim }],
+            },
+          ]}
+        >
+          <View style={[styles.discoveryIconWrapper, { backgroundColor: c.primary + '20' }]}>
+            <Feather name={getCheckpointIcon(recentFound.type)} size={20} color={c.primary} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.discoveryTitle, { color: c.primary }]}>ĐÃ MỞ KHÓA RƯƠNG BÍ ẨN</Text>
+            <Text style={[styles.discoverySubtitle, { color: c.foreground }]} numberOfLines={1}>
+              {recentFound.title}
+            </Text>
+          </View>
+          <View style={[styles.discoveryReward, { backgroundColor: c.primary + '25' }]}>
+            <Text style={[styles.discoveryRewardText, { color: c.primary }]}>
+              +{recentFound.reward.amount} {recentFound.reward.type.toUpperCase()}
+            </Text>
+          </View>
+        </Animated.View>
       )}
 
-      <View style={styles.mapTop}>
-        <View>
-          <Text style={styles.eyebrow}>GOOD MORNING, EXPLORER</Text>
-          <Text style={styles.heading}>Where will you reveal?</Text>
+      {/* Top Header Floating Bar with Safe Area */}
+      <View style={[styles.topBar, { top: Math.max(insets.top + 8, 16) }]}>
+        <View style={[styles.topLevelPill, { backgroundColor: c.card + 'E6', borderColor: c.border }]}>
+          <Feather name="compass" size={13} color={c.primary} />
+          <Text style={[styles.topLevelText, { color: c.foreground }]}>Wanderly</Text>
         </View>
-        <View style={styles.coins}>
-          <Feather name="circle" size={14} color={colors.light.primary} />
-          <Text style={styles.coinText}>{state.coins}</Text>
+
+        <View style={[styles.coinPill, { backgroundColor: c.card + 'E6', borderColor: c.border }]}>
+          <Feather name="award" size={13} color={c.primary} />
+          <Text style={[styles.coinText, { color: c.foreground }]}>{state.coins}</Text>
         </View>
       </View>
 
-      <Pressable
-        style={[styles.recenter, !followUser && styles.recenterAway]}
-        onPress={() => {
-          setFollowUser(true);
-          const nextRegion = { ...region, ...mapCurrent };
-          setRegion(nextRegion);
-          mapRef.current?.animateToRegion(nextRegion, 350);
-        }}
-      >
-        <Feather name="crosshair" size={18} color={colors.light.accent} />
-        {!followUser && <Text style={styles.recenterText}>Về tôi</Text>}
-      </Pressable>
-
-      <View style={styles.zoomControls}>
-        <Pressable style={styles.zoomButton} onPress={() => zoomMap(0.55)} accessibilityLabel="Zoom in">
-          <Feather name="plus" size={19} color={colors.light.foreground} />
+      {/* Floating Mystery Radar HUD */}
+      {radarInfo && (
+        <Pressable
+          style={[
+            styles.radarPill,
+            {
+              top: Math.max(insets.top + 54, 66),
+              backgroundColor: radarInfo.isMystery ? '#9333EA18' : c.card + 'F2',
+              borderColor: radarInfo.isMystery ? '#9333EA60' : c.border,
+            },
+          ]}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+            if (radarInfo.isMystery) {
+              setIsMysteryModalOpen(true);
+            } else if (radarInfo.checkpoint) {
+              setInspectedCheckpoint(radarInfo.checkpoint);
+            }
+          }}
+          accessibilityLabel={radarInfo.isMystery ? 'Xem chi tiết nhiệm vụ Mystery Hike' : 'Xem chi tiết kho báu gần nhất'}
+        >
+          <View style={[styles.radarIconBox, { backgroundColor: radarInfo.isMystery ? '#9333EA25' : c.primary + '18' }]}>
+            <Feather
+              name={radarInfo.isMystery ? 'compass' : getCheckpointIcon(radarInfo.type)}
+              size={13}
+              color={radarInfo.isMystery ? '#9333EA' : c.primary}
+            />
+          </View>
+          <Text style={[styles.radarTitle, { color: c.foreground }]} numberOfLines={1}>
+            {radarInfo.title}
+          </Text>
+          <View style={styles.radarRight}>
+            <Text style={[styles.radarDist, { color: radarInfo.isMystery ? '#9333EA' : c.primary }]}>
+              {radarInfo.distance}m
+            </Text>
+            <Text style={[styles.radarBearing, { color: c.mutedForeground }]}>{radarInfo.bearing}</Text>
+          </View>
         </Pressable>
-        <View style={styles.zoomDivider} />
-        <Pressable style={styles.zoomButton} onPress={() => zoomMap(1.8)} accessibilityLabel="Zoom out">
-          <Feather name="minus" size={19} color={colors.light.foreground} />
-        </Pressable>
-      </View>
+      )}
 
-      <View style={styles.sheet}>
-        <View style={styles.handle} />
-        <View style={styles.sheetRow}>
-          <View>
-            <Text style={styles.label}>THIS WEEK</Text>
-            <Text style={styles.distance}>{(state.distance + liveDistance / 1000).toFixed(2)} <Text style={styles.unit}>km</Text></Text>
-          </View>
-          <View style={styles.explored}>
-            <Text style={styles.label}>REVEALED</Text>
-            <Text style={styles.revealed}>{state.explored + revealedPoints.length} <Text style={styles.unit}>cells</Text></Text>
-          </View>
-        </View>
-
-        {active ? (
-          <View style={styles.activeRow}>
-            <View>
-              <Text style={styles.label}>ACTIVE EXPLORATION</Text>
-              <Text style={styles.timer}>{time}</Text>
-              <Text style={styles.sub}>GPS reveal zone · {REVEAL_AREA_SQUARE_METERS} m²</Text>
-            </View>
-            <View style={styles.actions}>
-              <Pressable style={styles.round} onPress={pause}>
-                <Feather name="pause" size={18} color={colors.light.primaryForeground} />
-              </Pressable>
-              <Pressable style={[styles.round, styles.finish]} onPress={finish}>
-                <Feather name="square" size={15} color={colors.light.primaryForeground} />
-              </Pressable>
-            </View>
-          </View>
-        ) : (
-          <Pressable style={styles.start} onPress={handleStart} disabled={requestingLocation}>
-            <Feather name={requestingLocation ? 'loader' : 'play'} size={18} color={colors.light.primaryForeground} />
-            <Text style={styles.startText}>{requestingLocation ? 'Locating you…' : 'Start exploring'}</Text>
-          </Pressable>
+      {/* Floating Action Capsule (Simulate in DEV, Mystery Hike, Recenter, Zoom) */}
+      <View style={[styles.floatingToolCapsule, { top: Math.max(insets.top + (radarInfo ? 104 : 56), 108), backgroundColor: c.card + 'EE', borderColor: c.border }]}>
+        {__DEV__ && (
+          <>
+            <Pressable
+              style={[
+                styles.toolBtn,
+                isSimulating && { backgroundColor: c.primary + '25' },
+              ]}
+              onPress={toggleSimulation}
+              accessibilityLabel="Mô phỏng chạy"
+            >
+              <Feather name={isSimulating ? 'navigation-2' : 'play'} size={18} color={isSimulating ? c.primary : c.foreground} />
+            </Pressable>
+            <View style={[styles.toolDivider, { backgroundColor: c.border }]} />
+          </>
         )}
-        <Text style={styles.nearby}>
-          <Feather name="gift" size={13} color={colors.light.primary} /> {revealedPoints.length ? 'Your path is opening the fog' : 'Move to reveal the map'}
-        </Text>
+
+        {/* Mystery Hike Beacon Quick Trigger */}
+        <Pressable
+          style={[
+            styles.toolBtn,
+            mysteryQuest?.isActive && { backgroundColor: '#9333EA20' },
+          ]}
+          onPress={() => setIsMysteryModalOpen(true)}
+          accessibilityLabel="Nhiệm vụ Mystery Hike"
+        >
+          <Feather name="compass" size={18} color={mysteryQuest?.isCompleted ? c.mutedForeground : '#9333EA'} />
+        </Pressable>
+
+        <View style={[styles.toolDivider, { backgroundColor: c.border }]} />
+
+        <Pressable
+          style={[styles.toolBtn, !followUser && { backgroundColor: c.primary }]}
+          onPress={handleRecenter}
+          accessibilityLabel="Định vị lại"
+        >
+          <Feather name="crosshair" size={18} color={!followUser ? c.primaryForeground : c.foreground} />
+        </Pressable>
+
+        <View style={[styles.toolDivider, { backgroundColor: c.border }]} />
+
+        <Pressable style={styles.toolBtn} onPress={() => handleZoom('IN')} accessibilityLabel="Phóng to">
+          <Feather name="plus" size={18} color={c.foreground} />
+        </Pressable>
+
+        <View style={[styles.toolDivider, { backgroundColor: c.border }]} />
+
+        <Pressable style={styles.toolBtn} onPress={() => handleZoom('OUT')} accessibilityLabel="Thu nhỏ">
+          <Feather name="minus" size={18} color={c.foreground} />
+        </Pressable>
       </View>
+
+      {/* Bottom Floating Athletic Runner Dock */}
+      <View
+        style={[
+          styles.bottomDock,
+          {
+            backgroundColor: c.card + 'F8',
+            borderColor: c.border,
+            bottom: Math.max(insets.bottom + 56, 72),
+          },
+        ]}
+      >
+        {/* Combo Pace Multiplier Pill */}
+        {active && comboMultiplier > 1.0 && (
+          <View style={[styles.comboPill, { backgroundColor: c.warning + '20', borderColor: c.warning }]}>
+            <Feather name="zap" size={11} color={c.warning} />
+            <Text style={[styles.comboText, { color: c.warning }]}>COMBO PACE x{comboMultiplier.toFixed(1)} XP BOOST</Text>
+          </View>
+        )}
+
+        {/* Live Exploration Zone % Progress Bar */}
+        <View style={styles.zoneProgressWrapper}>
+          <View style={styles.zoneProgressHeader}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <Feather name="compass" size={11} color={c.primary} />
+              <Text style={[styles.zoneProgressLabel, { color: c.mutedForeground }]}>
+                {active ? 'TIẾN ĐỘ VÀNH ĐAI KHÁM PHÁ' : 'TIẾN ĐỘ VÙNG HIỆN TẠI'}
+              </Text>
+            </View>
+            <Text style={[styles.zoneProgressPercent, { color: c.primary }]}>
+              {zonePercent}%
+            </Text>
+          </View>
+          <View style={[styles.zoneProgressTrack, { backgroundColor: c.secondary }]}>
+            <View
+              style={[
+                styles.zoneProgressFill,
+                {
+                  backgroundColor: c.primary,
+                  width: `${zonePercent}%`,
+                },
+              ]}
+            />
+          </View>
+        </View>
+
+        {/* Compact Athletic Row */}
+        <View style={styles.dockContentRow}>
+          {/* Quick Metrics */}
+          <View style={styles.dockMetrics}>
+            <View style={styles.dockMetricCol}>
+              <Text style={[styles.dockMetricLabel, { color: c.mutedForeground }]}>
+                {active ? 'KM' : 'TỔNG'}
+              </Text>
+              <Text style={[styles.dockMetricVal, { color: c.foreground }]}>
+                {active ? currentSessionKm : totalDistanceKm}
+                <Text style={[styles.dockMetricUnit, { color: c.mutedForeground }]}> km</Text>
+              </Text>
+            </View>
+
+            <View style={[styles.dockMetricDivider, { backgroundColor: c.border }]} />
+
+            <View style={styles.dockMetricCol}>
+              <Text style={[styles.dockMetricLabel, { color: c.mutedForeground }]}>
+                {active ? 'PACE' : 'Ô SƯƠNG'}
+              </Text>
+              <Text style={[styles.dockMetricVal, { color: c.foreground }]}>
+                {active ? currentPaceFormatted : state.explored}
+                <Text style={[styles.dockMetricUnit, { color: c.mutedForeground }]}>{active ? '' : ' ô'}</Text>
+              </Text>
+            </View>
+
+            {active && (
+              <>
+                <View style={[styles.dockMetricDivider, { backgroundColor: c.border }]} />
+                <View style={styles.dockMetricCol}>
+                  <Text style={[styles.dockMetricLabel, { color: c.mutedForeground }]}>GIỜ</Text>
+                  <Text style={[styles.dockMetricVal, { color: c.primary }]}>{formattedTime}</Text>
+                </View>
+              </>
+            )}
+          </View>
+
+          {/* Action Buttons */}
+          {!active ? (
+            <View style={styles.dockActionGroup}>
+              <Pressable
+                style={[
+                  styles.dockSimBtn,
+                  {
+                    backgroundColor: isSimulating ? c.primary + '18' : c.secondary,
+                    borderColor: isSimulating ? c.primary : c.border,
+                  },
+                ]}
+                onPress={toggleSimulation}
+                accessibilityLabel="Mô phỏng chạy"
+              >
+                <Feather
+                  name={isSimulating ? 'stop-circle' : 'play-circle'}
+                  size={15}
+                  color={isSimulating ? c.primary : c.foreground}
+                />
+                <Text
+                  style={[
+                    styles.dockSimText,
+                    { color: isSimulating ? c.primary : c.foreground },
+                  ]}
+                >
+                  {isSimulating ? 'Dừng' : 'Mô phỏng'}
+                </Text>
+              </Pressable>
+
+              <Pressable
+                style={[styles.dockStartBtn, { backgroundColor: c.primary }]}
+                onPress={start}
+                accessibilityLabel="Bắt đầu chạy"
+              >
+                <Feather name="play" size={15} color={c.primaryForeground} />
+                <Text style={[styles.dockStartText, { color: c.primaryForeground }]}>BẮT ĐẦU</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <View style={styles.dockActiveActions}>
+              <Pressable
+                style={[styles.dockIconBtn, { backgroundColor: c.secondary }]}
+                onPress={pause}
+                accessibilityLabel="Tạm dừng"
+              >
+                <Feather name="pause" size={16} color={c.foreground} />
+              </Pressable>
+              <Pressable
+                style={[styles.dockIconBtn, { backgroundColor: c.destructive }]}
+                onPress={handleFinishSession}
+                accessibilityLabel="Kết thúc hành trình"
+              >
+                <Feather name="square" size={16} color={c.destructiveForeground} />
+              </Pressable>
+            </View>
+          )}
+        </View>
+      </View>
+
+      {/* Checkpoint Detail Inspector Modal */}
+      <CheckpointDiscoveryModal
+        visible={!!inspectedCheckpoint}
+        checkpoint={inspectedCheckpoint}
+        mode="inspect"
+        distanceMeters={inspectedDistance}
+        onClose={() => setInspectedCheckpoint(null)}
+      />
+
+      {/* Mystery Hike Cryptic Clue Modal */}
+      <MysteryHikeModal
+        visible={isMysteryModalOpen}
+        quest={mysteryQuest}
+        distanceMeters={mysteryDistance}
+        isArrived={isMysteryArrived}
+        onClose={() => setIsMysteryModalOpen(false)}
+        onClaim={handleClaimMystery}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.light.background },
-  fogSegment: { position: 'absolute', backgroundColor: '#0C6B70', opacity: 0.9 },
-  mapTop: { position: 'absolute', top: 58, left: 20, right: 20, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  eyebrow: { color: colors.light.primary, fontSize: 10, fontWeight: '700', letterSpacing: 1.2 },
-  heading: { color: colors.light.foreground, fontWeight: '700', fontSize: 25, marginTop: 5 },
-  coins: { backgroundColor: colors.light.card, borderRadius: 14, paddingHorizontal: 11, paddingVertical: 9, flexDirection: 'row', gap: 5, alignItems: 'center' },
-  coinText: { color: colors.light.accent, fontWeight: '700' },
-  checkpoint: { width: 31, height: 31, borderRadius: 16, backgroundColor: colors.light.primary, borderWidth: 2, borderColor: colors.light.accent, alignItems: 'center', justifyContent: 'center' },
-  userMarker: { width: 28, height: 28, borderRadius: 14, backgroundColor: '#FFFFFF', borderWidth: 2, borderColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center', shadowColor: '#000000', shadowOpacity: 0.25, shadowRadius: 5, shadowOffset: { width: 0, height: 2 }, elevation: 4 },
-  userDot: { width: 15, height: 15, borderRadius: 8, backgroundColor: '#2F80ED', borderWidth: 2, borderColor: '#1764C0' },
-  centerUserMarker: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
-  centerUserDot: { width: 18, height: 18, borderRadius: 9, backgroundColor: '#2F80ED', borderWidth: 3, borderColor: '#FFFFFF', shadowColor: '#000000', shadowOpacity: 0.28, shadowRadius: 5, shadowOffset: { width: 0, height: 2 }, elevation: 5 },
-  recenter: { position: 'absolute', top: 138, right: 20, backgroundColor: colors.light.card, borderRadius: 13, padding: 11, borderWidth: 1, borderColor: colors.light.border, flexDirection: 'row', alignItems: 'center', gap: 7 },
-  recenterAway: { paddingHorizontal: 12 },
-  recenterText: { color: colors.light.foreground, fontSize: 12, fontWeight: '700' },
-  zoomControls: { position: 'absolute', top: 194, right: 20, overflow: 'hidden', borderRadius: 13, backgroundColor: colors.light.card, borderWidth: 1, borderColor: colors.light.border },
-  zoomButton: { width: 42, height: 38, alignItems: 'center', justifyContent: 'center' },
-  zoomDivider: { height: 1, marginHorizontal: 8, backgroundColor: colors.light.border },
-  sheet: { position: 'absolute', left: 12, right: 12, bottom: 12, backgroundColor: 'rgba(16,43,43,0.96)', borderRadius: 24, padding: 16, paddingTop: 10, borderWidth: 1, borderColor: colors.light.border },
-  handle: { width: 34, height: 4, borderRadius: 2, backgroundColor: colors.light.mutedForeground, alignSelf: 'center', marginBottom: 13, opacity: 0.6 },
-  sheetRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 14 },
-  explored: { paddingRight: 38 },
-  label: { color: colors.light.mutedForeground, fontSize: 9, letterSpacing: 1, fontWeight: '700' },
-  distance: { color: colors.light.foreground, fontSize: 26, fontWeight: '700', marginTop: 3 },
-  revealed: { color: colors.light.foreground, fontSize: 21, fontWeight: '700', marginTop: 6 },
-  unit: { color: colors.light.mutedForeground, fontSize: 12, fontWeight: '500' },
-  start: { height: 49, backgroundColor: colors.light.primary, borderRadius: 16, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 9 },
-  startText: { color: colors.light.primaryForeground, fontWeight: '700', fontSize: 15 },
-  activeRow: { backgroundColor: colors.light.secondary, borderRadius: 16, padding: 13, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  timer: { color: colors.light.foreground, fontSize: 27, fontWeight: '700', marginTop: 3 },
-  sub: { color: colors.light.mutedForeground, fontSize: 11, marginTop: 2 },
-  actions: { flexDirection: 'row', gap: 8 },
-  round: { width: 42, height: 42, borderRadius: 21, backgroundColor: colors.light.primary, alignItems: 'center', justifyContent: 'center' },
-  finish: { backgroundColor: colors.light.destructive },
-  nearby: { color: colors.light.mutedForeground, fontSize: 11, marginTop: 12, textAlign: 'center' },
+  container: { flex: 1 },
+  webView: { flex: 1 },
+  topBar: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    zIndex: 10,
+  },
+  topLevelPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: radii.full,
+    borderWidth: 1,
+  },
+  topLevelText: {
+    fontSize: 12,
+    fontFamily: typography.h4.fontFamily,
+    fontWeight: '700',
+  },
+  coinPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: radii.full,
+    borderWidth: 1,
+    elevation: 3,
+  },
+  coinText: {
+    fontSize: 13,
+    fontFamily: typography.buttonSmall.fontFamily,
+    fontWeight: '700',
+  },
+  discoveryBanner: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    borderRadius: radii.xl,
+    padding: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderWidth: 1.5,
+    zIndex: 99,
+    elevation: 8,
+  },
+  discoveryIconWrapper: {
+    width: 36,
+    height: 36,
+    borderRadius: radii.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  discoveryTitle: {
+    fontSize: 10,
+    fontFamily: typography.label.fontFamily,
+    letterSpacing: 0.8,
+    fontWeight: '800',
+  },
+  discoverySubtitle: {
+    fontSize: 13,
+    fontFamily: typography.body.fontFamily,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  discoveryReward: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: radii.sm,
+  },
+  discoveryRewardText: {
+    fontSize: 11,
+    fontFamily: typography.buttonSmall.fontFamily,
+    fontWeight: '800',
+  },
+  radarPill: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    borderRadius: radii.lg,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderWidth: 1,
+    elevation: 4,
+    zIndex: 9,
+  },
+  radarIconBox: {
+    width: 28,
+    height: 28,
+    borderRadius: radii.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  radarCenter: { flex: 1 },
+  radarTag: {
+    fontSize: 8.5,
+    fontFamily: typography.label.fontFamily,
+    letterSpacing: 0.6,
+    fontWeight: '800',
+  },
+  radarTitle: {
+    fontSize: 12,
+    fontFamily: typography.body.fontFamily,
+    fontWeight: '700',
+    marginTop: 1,
+  },
+  radarRight: { alignItems: 'flex-end' },
+  radarDist: {
+    fontSize: 13,
+    fontFamily: typography.statSmall.fontFamily,
+    fontWeight: '800',
+  },
+  radarBearing: {
+    fontSize: 9.5,
+    fontFamily: typography.caption.fontFamily,
+    fontWeight: '600',
+  },
+  floatingToolCapsule: {
+    position: 'absolute',
+    right: 16,
+    borderRadius: radii.xl,
+    borderWidth: 1,
+    overflow: 'hidden',
+    elevation: 5,
+    zIndex: 9,
+  },
+  toolBtn: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  toolDivider: {
+    height: 1,
+    width: '100%',
+  },
+  bottomDock: {
+    position: 'absolute',
+    left: 14,
+    right: 14,
+    borderRadius: radii.xl,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderWidth: 1,
+    elevation: 8,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    zIndex: 10,
+  },
+  comboPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    borderWidth: 1,
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: radii.full,
+    marginBottom: 6,
+    alignSelf: 'center',
+  },
+  comboText: {
+    fontSize: 9.5,
+    fontFamily: typography.label.fontFamily,
+    fontWeight: '800',
+    letterSpacing: 0.4,
+  },
+  zoneProgressWrapper: {
+    marginBottom: 8,
+    paddingHorizontal: 2,
+  },
+  zoneProgressHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  zoneProgressLabel: {
+    fontSize: 9,
+    fontFamily: typography.label.fontFamily,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  zoneProgressPercent: {
+    fontSize: 10,
+    fontFamily: typography.caption.fontFamily,
+    fontWeight: '800',
+  },
+  zoneProgressTrack: {
+    height: 4,
+    borderRadius: radii.full,
+    overflow: 'hidden',
+    width: '100%',
+  },
+  zoneProgressFill: {
+    height: '100%',
+    borderRadius: radii.full,
+  },
+  dockContentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  dockMetrics: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  dockMetricCol: {
+    justifyContent: 'center',
+  },
+  dockMetricLabel: {
+    fontSize: 8.5,
+    fontFamily: typography.label.fontFamily,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+  },
+  dockMetricVal: {
+    fontSize: 16,
+    fontFamily: typography.statSmall.fontFamily,
+    fontWeight: '800',
+    marginTop: 1,
+  },
+  dockMetricUnit: {
+    fontSize: 10,
+    fontFamily: typography.caption.fontFamily,
+    fontWeight: '600',
+  },
+  dockMetricDivider: {
+    width: 1,
+    height: 22,
+  },
+  dockActionGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  dockSimBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: radii.md,
+    borderWidth: 1,
+  },
+  dockSimText: {
+    fontSize: 11,
+    fontFamily: typography.buttonSmall.fontFamily,
+    fontWeight: '700',
+  },
+  dockStartBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: radii.md,
+    elevation: 2,
+  },
+  dockStartText: {
+    fontSize: 12,
+    fontFamily: typography.button.fontFamily,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  dockActiveActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  dockIconBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: radii.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });

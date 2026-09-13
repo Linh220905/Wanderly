@@ -134,7 +134,7 @@ export type BadgeCondition =
   | { type: 'level'; level: number }
   | { type: 'missions'; count: number };
 
-// ── Checkpoints ───────────────────────────────────────────
+// ── Checkpoints & Mystery Hike ────────────────────────────
 
 export type CheckpointType = 'landmark' | 'cache' | 'fragment' | 'mystery';
 
@@ -146,6 +146,46 @@ export interface Checkpoint {
   reward: { type: 'xp' | 'coins'; amount: number };
   discovered: boolean;
   discoveredAt: string | null;
+}
+
+// ── Territory & Mystery Hike Quest System ──────────────────
+
+export type TerritoryType = 'urban' | 'waterfront' | 'heritage' | 'park' | 'nature';
+
+export interface TerritoryZone {
+  id: string;
+  name: string;
+  nameVi: string;
+  type: TerritoryType;
+  color: string;
+  center: MapCoordinate;
+  radiusMeters: number;
+  explorationPercent: number; // 0 -> 100%
+  totalCells: number;
+  revealedCells: number;
+  isUnlocked: boolean;
+  guardianBadge?: string;
+}
+
+export interface MysteryHikeQuest {
+  id: string;
+  title: string;
+  titleVi: string;
+  clue: string;
+  clueVi: string;
+  targetCoordinate: MapCoordinate;
+  targetRadiusMeters: number; // e.g. 35m proximity
+  distanceKm: number; // estimated distance from start
+  territoryId: string;
+  reward: {
+    xp: number;
+    coins: number;
+    exclusiveBadgeId?: string;
+  };
+  isActive: boolean;
+  isCompleted: boolean;
+  completedAt: string | null;
+  expiresAt: string; // ISO datetime
 }
 
 // ── App State (persisted) ─────────────────────────────────

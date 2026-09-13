@@ -56,22 +56,24 @@ export function LevelUpModal({ visible, level, onClose }: LevelUpModalProps) {
         >
           {/* Level Crown Icon */}
           <View style={[styles.crownWrapper, { backgroundColor: c.primary }]}>
-            <Feather name="award" size={38} color={c.primaryForeground} />
+            <Feather name="award" size={32} color={c.primaryForeground} />
           </View>
 
-          <Text style={[typography.label, { color: c.primary, textAlign: 'center', marginTop: spacing.lg }]}>
-            ★ LEVEL UP ★
-          </Text>
+          <View style={[styles.badgePill, { backgroundColor: c.primary + '18' }]}>
+            <Text style={[styles.badgeText, { color: c.primary }]}>
+              ★ LEVEL UPGRADE ★
+            </Text>
+          </View>
 
-          <Text style={[typography.displayMedium, { color: c.foreground, textAlign: 'center', marginTop: 4 }]}>
+          <Text style={[typography.displayMedium, { color: c.foreground, textAlign: 'center', marginTop: 6 }]}>
             Level {level}
           </Text>
 
-          <Text style={[typography.h3, { color: c.accent, textAlign: 'center', marginTop: spacing.xs }]}>
+          <Text style={[typography.h3, { color: c.primary, textAlign: 'center', marginTop: 2 }]}>
             {levelTitle}
           </Text>
 
-          <Text style={[typography.body, { color: c.mutedForeground, textAlign: 'center', marginTop: spacing.md, marginBottom: spacing.xl }]}>
+          <Text style={[typography.caption, { color: c.mutedForeground, textAlign: 'center', marginTop: spacing.sm, marginBottom: spacing.lg }]}>
             {interpolate(t.levelUp.body, { level })}
           </Text>
 
@@ -84,14 +86,37 @@ export function LevelUpModal({ visible, level, onClose }: LevelUpModalProps) {
 
 const styles = StyleSheet.create({
   overlay: {
-    flex: 1, justifyContent: 'center', alignItems: 'center', padding: 28,
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
   },
   modalCard: {
-    width: '100%', borderRadius: radii['2xl'], borderWidth: 2, padding: spacing.xl,
+    width: '100%',
+    borderRadius: radii.xl,
+    borderWidth: 1.5,
+    padding: spacing.lg,
     alignItems: 'stretch',
   },
   crownWrapper: {
-    width: 76, height: 76, borderRadius: 38, alignSelf: 'center',
-    alignItems: 'center', justifyContent: 'center',
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    alignSelf: 'center',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  badgePill: {
+    alignSelf: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: radii.full,
+    marginTop: spacing.sm,
+  },
+  badgeText: {
+    fontSize: 9.5,
+    fontFamily: typography.label.fontFamily,
+    fontWeight: '800',
+    letterSpacing: 0.8,
   },
 });

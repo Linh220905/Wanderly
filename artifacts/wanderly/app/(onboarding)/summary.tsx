@@ -1,16 +1,18 @@
 import React from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useColors } from '@/hooks/useColors';
 import { useTranslation, interpolate } from '@/i18n';
 import { useApp } from '@/contexts/AppContext';
-import { Button, Logo } from '@/components/ui/SharedComponents';
+import { Button, Card, Logo } from '@/components/ui/SharedComponents';
 import typography from '@/constants/typography';
-import { spacing } from '@/constants/spacing';
+import { spacing, radii } from '@/constants/spacing';
 import type { ExplorerType } from '@/models/types';
 
 export default function SummaryScreen() {
+  const insets = useSafeAreaInsets();
   const c = useColors();
   const { t } = useTranslation();
   const { state, dispatch } = useApp();
@@ -36,45 +38,59 @@ export default function SummaryScreen() {
 
   return (
     <View style={[styles.screen, { backgroundColor: c.background }]}>
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView
+        contentContainerStyle={[
+          styles.content,
+          { paddingTop: insets.top + 16, paddingBottom: insets.bottom + 24 },
+        ]}
+        showsVerticalScrollIndicator={false}
+      >
         <Logo small />
 
-        <Text style={[typography.label, { color: c.primary, marginTop: spacing['3xl'] }]}>
-          {t.summary.eyebrow}
-        </Text>
-        <Text style={[typography.displayLarge, { color: c.foreground, marginTop: spacing.sm }]}>
-          {typeName}
-        </Text>
-        <Text style={[typography.bodyLarge, { color: c.mutedForeground, marginTop: spacing.md, marginBottom: spacing['2xl'] }]}>
-          {t.summary.body}
-        </Text>
-
-        {/* Stats Card */}
-        <View style={[styles.statsCard, { backgroundColor: c.card, borderColor: c.border }]}>
-          <View>
-            <Text style={[typography.label, { color: c.mutedForeground }]}>{t.summary.weeklyTarget}</Text>
-            <Text style={[typography.stat, { color: c.foreground, marginTop: 7 }]}>{weeklyTarget}</Text>
+        {/* Archetype Hero Section */}
+        <View style={styles.archetypeSection}>
+          <View style={[styles.archetypeBadge, { backgroundColor: c.primary + '18' }]}>
+            <Feather name="compass" size={13} color={c.primary} />
+            <Text style={[styles.archetypeBadgeText, { color: c.primary }]}>{t.summary.eyebrow}</Text>
           </View>
-          <View style={[styles.divider, { backgroundColor: c.border }]} />
-          <View>
-            <Text style={[typography.label, { color: c.mutedForeground }]}>{t.summary.recommended}</Text>
-            <Text style={[typography.stat, { color: c.foreground, marginTop: 7 }]}>{recommendedDays}</Text>
-          </View>
-        </View>
 
-        {/* Quote */}
-        <View style={[styles.quote, { borderLeftColor: c.primary }]}>
-          <Feather name="compass" color={c.primary} size={21} />
-          <Text style={[typography.body, { flex: 1, color: c.accent, fontWeight: '500' }]}>
-            {t.summary.quote}
+          <Text style={[typography.displayMedium, { color: c.foreground, textAlign: 'center', marginTop: 10 }]}>
+            {typeName}
+          </Text>
+
+          <Text style={[typography.body, { color: c.mutedForeground, textAlign: 'center', marginTop: 6 }]}>
+            {t.summary.body}
           </Text>
         </View>
 
-        <Button
-          title={t.summary.buildAdventure}
-          onPress={handleNext}
-          icon="arrow-right"
-        />
+        {/* Athletic Metrics Targets Card */}
+        <Card style={styles.targetsCard}>
+          <View style={styles.targetItem}>
+            <Text style={[styles.targetLabel, { color: c.mutedForeground }]}>{t.summary.weeklyTarget}</Text>
+            <Text style={[typography.h3, { color: c.foreground, marginTop: 2 }]}>{weeklyTarget}</Text>
+          </View>
+          <View style={[styles.targetDivider, { backgroundColor: c.border }]} />
+          <View style={styles.targetItem}>
+            <Text style={[styles.targetLabel, { color: c.mutedForeground }]}>{t.summary.recommended}</Text>
+            <Text style={[typography.h3, { color: c.primary, marginTop: 2 }]}>{recommendedDays}</Text>
+          </View>
+        </Card>
+
+        {/* Motto Quote Card */}
+        <Card style={styles.quoteCard}>
+          <Feather name="award" color={c.accent} size={20} />
+          <Text style={[typography.caption, { flex: 1, color: c.foreground, fontWeight: '600' }]}>
+            {t.summary.quote}
+          </Text>
+        </Card>
+
+        <View style={{ marginTop: spacing.xl }}>
+          <Button
+            title={t.summary.buildAdventure}
+            onPress={handleNext}
+            icon="arrow-right"
+          />
+        </View>
       </ScrollView>
     </View>
   );
@@ -82,14 +98,52 @@ export default function SummaryScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  content: { padding: 26, paddingTop: 58, paddingBottom: 32, flexGrow: 1 },
-  statsCard: {
-    borderRadius: 22, borderWidth: 1, padding: 21,
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+  content: { paddingHorizontal: 16, flexGrow: 1 },
+  archetypeSection: {
+    alignItems: 'center',
+    marginTop: spacing.lg,
+    paddingHorizontal: spacing.sm,
   },
-  divider: { width: 1, height: 48 },
-  quote: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    marginVertical: 28, padding: 17, borderLeftWidth: 2,
+  archetypeBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: radii.full,
+  },
+  archetypeBadgeText: {
+    fontSize: 9.5,
+    fontFamily: typography.label.fontFamily,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+  },
+  targetsCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-around',
+    marginTop: spacing.lg,
+    paddingVertical: spacing.md,
+  },
+  targetItem: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  targetLabel: {
+    fontSize: 10,
+    fontFamily: typography.label.fontFamily,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  targetDivider: {
+    width: 1,
+    height: 32,
+  },
+  quoteCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginTop: spacing.md,
+    padding: spacing.md,
   },
 });

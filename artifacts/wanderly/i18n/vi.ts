@@ -174,7 +174,7 @@ const vi: TranslationKeys = {
     streak: 'CHUỖI',
     emptyTitle: 'Hành trình đầu tiên đang chờ',
     emptyBody: 'Bắt đầu khám phá từ tab Bản đồ và lộ trình sẽ xuất hiện ở đây.',
-    sessionTitle: 'Một con đường mới được mở',
+    sessionTitle: 'Hành trình khám phá',
     today: 'Hôm nay',
     run: 'Chạy bộ',
   },
@@ -212,6 +212,9 @@ const vi: TranslationKeys = {
     restorePurchases: 'Khôi phục mua hàng',
     language: 'Ngôn ngữ',
     about: 'Về Wanderly',
+    deleteAccount: 'Xóa tài khoản vĩnh viễn',
+    deleteAccountConfirmTitle: 'Xác nhận xóa tài khoản?',
+    deleteAccountConfirmBody: 'Toàn bộ dữ liệu, tiến trình khám phá và tài khoản của bạn sẽ bị xóa hoàn toàn khỏi hệ thống và không thể khôi phục.',
     signOut: 'Đăng xuất / đặt lại hồ sơ',
     signOutConfirmTitle: 'Đặt lại cuộc phiêu lưu?',
     signOutConfirmBody: 'Thao tác này sẽ xóa toàn bộ tiến trình cục bộ.',
@@ -236,6 +239,14 @@ const vi: TranslationKeys = {
     body: 'Bạn đã đạt Nhà Thám Hiểm Cấp {{level}}',
     reward: 'Phần thưởng: {{reward}}',
     celebrate: 'Tuyệt vời!',
+  },
+
+  tabs: {
+    map: 'Bản đồ',
+    missions: 'Nhiệm vụ',
+    journey: 'Hành trình',
+    collection: 'Bộ sưu tập',
+    profile: 'Hồ sơ',
   },
 
   checkpoint: {

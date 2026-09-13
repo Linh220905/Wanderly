@@ -50,37 +50,51 @@ export interface SessionRewards {
   xp: number;
   coins: number;
   streakBonus: number;
+  comboMultiplier: number;
   levelBefore: number;
   levelAfter: number;
   didLevelUp: boolean;
 }
 
+export function calculateComboMultiplier(durationSeconds: number, averageSpeedKmh: number): number {
+  // Steady pace bonus: running >= 5.0 km/h for > 5 mins gives 1.25x, > 10 mins gives 1.5x, > 20 mins gives 2.0x
+  if (averageSpeedKmh < 4.0 || durationSeconds < 300) return 1.0;
+  if (durationSeconds >= 1200) return 2.0;
+  if (durationSeconds >= 600) return 1.5;
+  return 1.25;
+}
+
 export function calculateSessionRewards(
-  session: Omit<ExplorationSession, 'id' | 'xpEarned' | 'coinsEarned'>,
+  session: Omit<ExplorationSession, 'id' | 'xpEarned' | 'coinsEarned'> & { averageSpeedKmh?: number },
   profile: UserProfile,
 ): SessionRewards {
   const distanceKm = session.distance / 1000;
+  const comboMultiplier = calculateComboMultiplier(session.duration, session.averageSpeedKmh ?? 5.0);
 
   // Base XP
-  let xp = XP_PER_SESSION_COMPLETE;
-  xp += Math.round(distanceKm * XP_PER_KM);
-  xp += session.cellsRevealed * XP_PER_CELL;
-  xp += session.checkpointsDiscovered.length * XP_PER_CHECKPOINT;
+  let baseXp = XP_PER_SESSION_COMPLETE;
+  baseXp += Math.round(distanceKm * XP_PER_KM);
+  baseXp += session.cellsRevealed * XP_PER_CELL;
+  baseXp += session.checkpointsDiscovered.length * XP_PER_CHECKPOINT;
 
   // Streak bonus
   const streakBonus = Math.min(profile.streak * XP_STREAK_BONUS_PER_DAY, 50);
-  xp += streakBonus;
+  baseXp += streakBonus;
+
+  // Apply combo pace multiplier to XP
+  const xp = Math.round(baseXp * comboMultiplier);
 
   // Coins
   let coins = COINS_SESSION_BASE;
   coins += Math.round(distanceKm * COINS_PER_KM);
   coins += session.checkpointsDiscovered.length * COINS_PER_CHECKPOINT;
+  coins = Math.round(coins * (comboMultiplier > 1.0 ? 1.2 : 1.0));
 
   const levelBefore = profile.level;
   const levelAfter = getLevelForXP(profile.xp + xp);
   const didLevelUp = levelAfter > levelBefore;
 
-  return { xp, coins, streakBonus, levelBefore, levelAfter, didLevelUp };
+  return { xp, coins, streakBonus, comboMultiplier, levelBefore, levelAfter, didLevelUp };
 }
 
 // ── Streak Logic ──────────────────────────────────────────

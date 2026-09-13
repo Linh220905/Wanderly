@@ -1,8 +1,8 @@
 /**
  * Reusable UI components for Wanderly.
  *
- * Premium design system with consistent styling, haptic feedback,
- * and smooth animations.
+ * Premium design system with crisp card encasements, clear hierarchy,
+ * haptic feedback, and smooth spring micro-interactions.
  */
 
 import React, { useEffect, useRef } from 'react';
@@ -10,7 +10,6 @@ import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
-import colors from '@/constants/colors';
 import typography from '@/constants/typography';
 import { spacing, radii, shadows } from '@/constants/spacing';
 import { useColors } from '@/hooks/useColors';
@@ -27,12 +26,20 @@ interface ButtonProps {
   size?: 'default' | 'small';
 }
 
-export function Button({ title, onPress, secondary = false, disabled = false, icon, loading = false, size = 'default' }: ButtonProps) {
+export function Button({
+  title,
+  onPress,
+  secondary = false,
+  disabled = false,
+  icon,
+  loading = false,
+  size = 'default',
+}: ButtonProps) {
   const c = useColors();
   const scale = useRef(new Animated.Value(1)).current;
 
   const handlePressIn = () => {
-    Animated.spring(scale, { toValue: 0.96, useNativeDriver: true, friction: 8 }).start();
+    Animated.spring(scale, { toValue: 0.97, useNativeDriver: true, friction: 8 }).start();
   };
 
   const handlePressOut = () => {
@@ -44,24 +51,37 @@ export function Button({ title, onPress, secondary = false, disabled = false, ic
       <Pressable
         testID={title}
         disabled={disabled || loading}
-        onPress={() => { Haptics.selectionAsync(); onPress(); }}
+        onPress={() => {
+          Haptics.selectionAsync();
+          onPress();
+        }}
         onPressIn={handlePressIn}
         onPressOut={handlePressOut}
         style={[
           styles.button,
+          {
+            backgroundColor: secondary ? c.secondary : c.primary,
+            borderColor: secondary ? c.border : c.primary,
+            borderWidth: 1,
+          },
           size === 'small' && styles.buttonSmall,
-          secondary && { backgroundColor: c.secondary, borderWidth: 1, borderColor: c.border },
           (disabled || loading) && styles.disabled,
         ]}
       >
         {icon && !loading && (
-          <Feather name={icon} size={size === 'small' ? 15 : 17} color={secondary ? c.accent : c.primaryForeground} />
+          <Feather
+            name={icon}
+            size={size === 'small' ? 16 : 18}
+            color={secondary ? c.foreground : c.primaryForeground}
+          />
         )}
-        <Text style={[
-          styles.buttonText,
-          size === 'small' && styles.buttonTextSmall,
-          secondary && { color: c.accent },
-        ]}>
+        <Text
+          style={[
+            styles.buttonText,
+            { color: secondary ? c.foreground : c.primaryForeground },
+            size === 'small' && styles.buttonTextSmall,
+          ]}
+        >
           {loading ? 'Loading…' : title}
         </Text>
       </Pressable>
@@ -76,18 +96,44 @@ interface CardProps {
   style?: any;
   onPress?: () => void;
   glow?: boolean;
+  accentBorder?: boolean;
 }
 
-export function Card({ children, style, onPress, glow = false }: CardProps) {
+export function Card({ children, style, onPress, glow = false, accentBorder = false }: CardProps) {
   const c = useColors();
+  const scale = useRef(new Animated.Value(1)).current;
+
   const content = (
-    <View style={[styles.card, { backgroundColor: c.card, borderColor: c.border }, glow && shadows.glow, style]}>
+    <View
+      style={[
+        styles.card,
+        {
+          backgroundColor: c.card,
+          borderColor: accentBorder ? c.primary : c.border,
+        },
+        glow && shadows.glow,
+        style,
+      ]}
+    >
       {children}
     </View>
   );
 
   if (onPress) {
-    return <Pressable onPress={onPress} style={({ pressed }) => [pressed && styles.pressed]}>{content}</Pressable>;
+    return (
+      <Animated.View style={{ transform: [{ scale }] }}>
+        <Pressable
+          onPress={() => {
+            Haptics.selectionAsync();
+            onPress();
+          }}
+          onPressIn={() => Animated.spring(scale, { toValue: 0.98, useNativeDriver: true }).start()}
+          onPressOut={() => Animated.spring(scale, { toValue: 1, useNativeDriver: true }).start()}
+        >
+          {content}
+        </Pressable>
+      </Animated.View>
+    );
   }
   return content;
 }
@@ -99,9 +145,10 @@ interface ProgressBarProps {
   height?: number;
   showLabel?: boolean;
   gradient?: boolean;
+  color?: string;
 }
 
-export function ProgressBar({ progress, height = 6, showLabel = false, gradient = false }: ProgressBarProps) {
+export function ProgressBar({ progress, height = 7, showLabel = false, gradient = false, color }: ProgressBarProps) {
   const c = useColors();
   const animatedWidth = useRef(new Animated.Value(0)).current;
 
@@ -113,6 +160,8 @@ export function ProgressBar({ progress, height = 6, showLabel = false, gradient 
     }).start();
   }, [progress, animatedWidth]);
 
+  const fillColor = color || c.primary;
+
   return (
     <View>
       <View style={[styles.progressTrack, { height, backgroundColor: c.secondary }]}>
@@ -121,7 +170,7 @@ export function ProgressBar({ progress, height = 6, showLabel = false, gradient 
             styles.progressFill,
             {
               height,
-              backgroundColor: gradient ? undefined : c.primary,
+              backgroundColor: gradient ? undefined : fillColor,
               width: animatedWidth.interpolate({
                 inputRange: [0, 1],
                 outputRange: ['0%', '100%'],
@@ -131,7 +180,7 @@ export function ProgressBar({ progress, height = 6, showLabel = false, gradient 
         >
           {gradient && (
             <LinearGradient
-              colors={[c.primary, c.warning]}
+              colors={[fillColor, c.warning]}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 0 }}
               style={StyleSheet.absoluteFill}
@@ -160,25 +209,33 @@ export function SegmentControl({ segments, active, onChange }: SegmentControlPro
   const c = useColors();
 
   return (
-    <View style={[styles.segmentContainer, { backgroundColor: c.secondary }]}>
-      {segments.map((label, index) => (
-        <Pressable
-          key={label}
-          style={[
-            styles.segmentItem,
-            index === active && { backgroundColor: c.card },
-          ]}
-          onPress={() => { Haptics.selectionAsync(); onChange(index); }}
-        >
-          <Text style={[
-            styles.segmentText,
-            { color: c.mutedForeground },
-            index === active && { color: c.foreground, fontWeight: '700' as const },
-          ]}>
-            {label}
-          </Text>
-        </Pressable>
-      ))}
+    <View style={[styles.segmentContainer, { backgroundColor: c.secondary, borderColor: c.border }]}>
+      {segments.map((label, index) => {
+        const isActive = index === active;
+        return (
+          <Pressable
+            key={label}
+            style={[
+              styles.segmentItem,
+              isActive && { backgroundColor: c.card, borderColor: c.border, borderWidth: 1 },
+            ]}
+            onPress={() => {
+              Haptics.selectionAsync();
+              onChange(index);
+            }}
+          >
+            <Text
+              style={[
+                styles.segmentText,
+                { color: isActive ? c.foreground : c.mutedForeground },
+                isActive && { fontWeight: '700' as const },
+              ]}
+            >
+              {label}
+            </Text>
+          </Pressable>
+        );
+      })}
     </View>
   );
 }
@@ -198,7 +255,7 @@ export function StatCard({ label, value, icon, accent = false }: StatCardProps) 
     <Card style={styles.statCard}>
       {icon && (
         <View style={[styles.statIcon, { backgroundColor: accent ? c.primary + '20' : c.secondary }]}>
-          <Feather name={icon} size={16} color={accent ? c.primary : c.mutedForeground} />
+          <Feather name={icon} size={17} color={accent ? c.primary : c.mutedForeground} />
         </View>
       )}
       <Text style={[typography.label, { color: c.mutedForeground }]}>{label}</Text>
@@ -220,7 +277,7 @@ export function EmptyState({ icon, title, description, action }: EmptyStateProps
   const c = useColors();
   return (
     <View style={styles.emptyState}>
-      <View style={[styles.emptyIcon, { backgroundColor: c.secondary }]}>
+      <View style={[styles.emptyIcon, { backgroundColor: c.secondary, borderColor: c.border, borderWidth: 1 }]}>
         <Feather name={icon} size={32} color={c.primary} />
       </View>
       <Text style={[typography.h3, { color: c.foreground, marginTop: spacing.lg }]}>{title}</Text>
@@ -251,23 +308,32 @@ export function Tag({ text, active, onPress }: TagProps) {
   return (
     <Animated.View style={{ transform: [{ scale }] }}>
       <Pressable
-        onPress={() => { Haptics.selectionAsync(); onPress(); }}
-        onPressIn={() => Animated.spring(scale, { toValue: 0.97, useNativeDriver: true }).start()}
+        onPress={() => {
+          Haptics.selectionAsync();
+          onPress();
+        }}
+        onPressIn={() => Animated.spring(scale, { toValue: 0.98, useNativeDriver: true }).start()}
         onPressOut={() => Animated.spring(scale, { toValue: 1, useNativeDriver: true }).start()}
         style={[
           styles.tag,
           { borderColor: c.border, backgroundColor: c.card },
-          active && { backgroundColor: c.primary, borderColor: c.primary },
+          active && { backgroundColor: c.primary + '18', borderColor: c.primary, borderWidth: 1.5 },
         ]}
       >
-        <Text style={[
-          styles.tagText,
-          { color: c.cardForeground },
-          active && { color: c.primaryForeground, fontWeight: '700' as const },
-        ]}>
+        <Text
+          style={[
+            styles.tagText,
+            { color: active ? c.primary : c.foreground },
+            active && { fontWeight: '700' as const },
+          ]}
+        >
           {text}
         </Text>
-        {active && <Feather name="check" size={15} color={c.primaryForeground} />}
+        {active && (
+          <View style={[styles.tagCheck, { backgroundColor: c.primary }]}>
+            <Feather name="check" size={13} color={c.primaryForeground} />
+          </View>
+        )}
       </Pressable>
     </Animated.View>
   );
@@ -279,18 +345,22 @@ export function Logo({ small = false }: { small?: boolean }) {
   const c = useColors();
   return (
     <View style={styles.logo}>
-      <View style={[
-        styles.logoMark,
-        { backgroundColor: c.primary },
-        small && styles.logoSmall,
-      ]}>
-        <Feather name="navigation" size={small ? 14 : 21} color={c.primaryForeground} />
+      <View
+        style={[
+          styles.logoMark,
+          { backgroundColor: c.primary },
+          small && styles.logoSmall,
+        ]}
+      >
+        <Feather name="navigation" size={small ? 14 : 20} color={c.primaryForeground} />
       </View>
-      <Text style={[
-        styles.logoText,
-        { color: c.foreground },
-        small && styles.logoTextSmall,
-      ]}>
+      <Text
+        style={[
+          styles.logoText,
+          { color: c.foreground },
+          small && styles.logoTextSmall,
+        ]}
+      >
         wanderly
       </Text>
     </View>
@@ -324,7 +394,12 @@ export function AnimatedCounter({ value, suffix = '', style, decimals = 0 }: Ani
     return () => animValue.removeListener(listener);
   }, [value, animValue, decimals]);
 
-  return <Text style={style}>{displayValue}{suffix}</Text>;
+  return (
+    <Text style={style}>
+      {displayValue}
+      {suffix}
+    </Text>
+  );
 }
 
 // ── Styles ────────────────────────────────────────────────
@@ -332,31 +407,32 @@ export function AnimatedCounter({ value, suffix = '', style, decimals = 0 }: Ani
 const styles = StyleSheet.create({
   button: {
     height: 56,
-    borderRadius: radii.lg,
-    backgroundColor: colors.light.primary,
+    borderRadius: radii.xl,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
     gap: 10,
+    elevation: 4,
   },
   buttonSmall: {
     height: 44,
-    borderRadius: radii.md,
+    borderRadius: radii.lg,
   },
   disabled: { opacity: 0.45 },
-  pressed: { opacity: 0.85 },
   buttonText: {
     ...typography.button,
-    color: colors.light.primaryForeground,
+    fontWeight: '800',
+    letterSpacing: 0.5,
   },
   buttonTextSmall: {
     ...typography.buttonSmall,
+    fontWeight: '700',
   },
   card: {
     borderRadius: radii.xl,
     borderWidth: 1,
     padding: spacing.lg,
-    ...shadows.sm,
+    elevation: 3,
   },
   progressTrack: {
     borderRadius: radii.full,
@@ -370,16 +446,18 @@ const styles = StyleSheet.create({
     ...typography.captionSmall,
     textAlign: 'right',
     marginTop: 4,
+    fontWeight: '700',
   },
   segmentContainer: {
     flexDirection: 'row',
-    borderRadius: radii.md,
+    borderRadius: radii.xl,
     padding: 4,
+    borderWidth: 1,
   },
   segmentItem: {
     flex: 1,
-    borderRadius: radii.sm + 2,
-    paddingVertical: 9,
+    borderRadius: radii.lg,
+    paddingVertical: 10,
     alignItems: 'center',
   },
   segmentText: {
@@ -390,9 +468,9 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
   },
   statIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: radii.sm,
+    width: 34,
+    height: 34,
+    borderRadius: radii.md,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: spacing.sm,
@@ -405,22 +483,30 @@ const styles = StyleSheet.create({
   emptyIcon: {
     width: 72,
     height: 72,
-    borderRadius: 24,
+    borderRadius: radii.xl,
     alignItems: 'center',
     justifyContent: 'center',
   },
   tag: {
-    minHeight: 54,
-    borderRadius: 17,
+    minHeight: 56,
+    borderRadius: radii.xl,
     borderWidth: 1,
-    paddingHorizontal: 17,
+    paddingHorizontal: spacing.lg,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    elevation: 2,
   },
   tagText: {
     fontSize: 16,
-    fontWeight: '500',
+    fontWeight: '600',
+  },
+  tagCheck: {
+    width: 24,
+    height: 24,
+    borderRadius: radii.full,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   logo: {
     flexDirection: 'row',
@@ -428,23 +514,24 @@ const styles = StyleSheet.create({
     gap: 9,
   },
   logoMark: {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
+    width: 40,
+    height: 40,
+    borderRadius: radii.lg,
     alignItems: 'center',
     justifyContent: 'center',
   },
   logoSmall: {
-    width: 31,
-    height: 31,
-    borderRadius: 11,
+    width: 30,
+    height: 30,
+    borderRadius: radii.md,
   },
   logoText: {
-    fontSize: 23,
-    fontWeight: '700',
-    letterSpacing: -1,
+    fontSize: 22,
+    fontWeight: '800',
+    letterSpacing: -0.8,
   },
   logoTextSmall: {
-    fontSize: 18,
+    fontSize: 17,
+    fontWeight: '800',
   },
 });

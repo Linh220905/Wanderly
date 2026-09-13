@@ -15,8 +15,9 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.wanderly.app",
+      "bundleIdentifier": "com.wanderly.fogofwar",
       "infoPlist": {
+        "CFBundleDisplayName": "Wanderly",
         "NSLocationWhenInUseUsageDescription": "Wanderly uses your location to record your exploration route and reveal map fog as you move.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "Wanderly uses background location to continue tracking your adventure even when your device screen is off.",
         "NSLocationAlwaysUsageDescription": "Wanderly requires background location access to reveal fog of war during outdoor activities."

@@ -21,6 +21,7 @@ export const spacing = {
 
 /** Border radius presets matching the design system. */
 export const radii = {
+  xs: 4,
   sm: 8,
   md: 13,
   lg: 18,
@@ -29,33 +30,33 @@ export const radii = {
   full: 9999,
 } as const;
 
-/** Shadow presets for elevation. */
+/** Shadow presets for elevation on light cards. */
 export const shadows = {
   sm: {
-    shadowColor: '#000000',
+    shadowColor: '#64748B',
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.12,
+    shadowOpacity: 0.08,
     shadowRadius: 3,
     elevation: 2,
   },
   md: {
-    shadowColor: '#000000',
+    shadowColor: '#64748B',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.18,
-    shadowRadius: 6,
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
     elevation: 4,
   },
   lg: {
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.24,
-    shadowRadius: 12,
+    shadowColor: '#64748B',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.15,
+    shadowRadius: 16,
     elevation: 8,
   },
   glow: {
-    shadowColor: '#F4A340',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.35,
+    shadowColor: '#F97316',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
     shadowRadius: 12,
     elevation: 6,
   },

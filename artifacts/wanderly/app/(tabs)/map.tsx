@@ -9,6 +9,7 @@ import { SessionSummaryModal } from '@/components/modals/SessionSummaryModal';
 import { LevelUpModal } from '@/components/modals/LevelUpModal';
 import { useToast } from '@/components/ui/Toast';
 import type { ExplorationSession } from '@/models/types';
+import type { MapCoordinate } from '@/components/LiveMap';
 
 export default function MapScreen() {
   const { state, dispatch, profile, completeSession } = useApp();
@@ -38,52 +39,81 @@ export default function MapScreen() {
     setActive(false);
   }, []);
 
-  const handleFinish = useCallback(() => {
-    setActive(false);
+  const handleFinish = useCallback(
+    (sessionResult?: {
+      distanceMeters: number;
+      route: MapCoordinate[];
+      cellsCount: number;
+      checkpointsDiscovered: string[];
+      averageSpeedKmh: number;
+    }) => {
+      setActive(false);
 
-    // Calculate rewards
-    const sessionData: Omit<ExplorationSession, 'id'> = {
-      date: new Date().toISOString().split('T')[0],
-      startedAt: new Date(Date.now() - seconds * 1000).toISOString(),
-      endedAt: new Date().toISOString(),
-      duration: seconds,
-      distance: 2400,
-      cellsRevealed: 12,
-      route: [],
-      xpEarned: 0,
-      coinsEarned: 0,
-      checkpointsDiscovered: [],
-      activityType: 'run',
-    };
+      const distance = sessionResult?.distanceMeters ?? 0;
+      const duration = seconds;
 
-    const rewards = calculateSessionRewards(sessionData, profile);
-    sessionData.xpEarned = rewards.xp;
-    sessionData.coinsEarned = rewards.coins;
+      // Filter out accidental/discarded runs: must be >= 50m and >= 15 seconds
+      if (distance < 50 || duration < 15) {
+        showToast({
+          type: 'info',
+          title: 'Hành trình quá ngắn',
+          message: 'Cần di chuyển tối thiểu 50m và 15 giây để ghi nhận lộ trình.',
+          icon: 'alert-circle',
+        });
+        setSeconds(0);
+        return;
+      }
 
-    const session = completeSession(sessionData);
-    setLastSession(session);
+      const cellsRevealed = sessionResult?.cellsCount ?? Math.max(1, Math.floor(distance / 30));
+      const route = sessionResult?.route ?? [];
+      const checkpointsDiscovered = sessionResult?.checkpointsDiscovered ?? [];
+      const averageSpeedKmh = sessionResult?.averageSpeedKmh ?? 5.0;
 
-    // Update missions
-    if (state.missions.length > 0) {
-      const updated = updateMissionProgress(
-        state.missions,
-        { ...profile, totalSessions: profile.totalSessions + 1 },
-        sessionData.distance,
-        sessionData.cellsRevealed,
-        sessionData.checkpointsDiscovered.length,
-      );
-      dispatch({ type: 'SET_MISSIONS', missions: updated });
-    }
+      // Calculate Strava-like rewards with Combo multiplier
+      const sessionData: Omit<ExplorationSession, 'id'> = {
+        date: new Date().toISOString().split('T')[0],
+        startedAt: new Date(Date.now() - duration * 1000).toISOString(),
+        endedAt: new Date().toISOString(),
+        duration,
+        distance,
+        cellsRevealed,
+        route,
+        xpEarned: 0,
+        coinsEarned: 0,
+        checkpointsDiscovered,
+        activityType: 'run',
+      };
 
-    if (rewards.didLevelUp) {
-      setNewLevel(rewards.levelAfter);
-      setLevelUpVisible(true);
-    } else {
-      setSummaryModalVisible(true);
-    }
+      const rewards = calculateSessionRewards({ ...sessionData, averageSpeedKmh }, profile);
+      sessionData.xpEarned = rewards.xp;
+      sessionData.coinsEarned = rewards.coins;
 
-    setSeconds(0);
-  }, [seconds, profile, state.missions, dispatch, completeSession]);
+      const session = completeSession(sessionData);
+      setLastSession(session);
+
+      // Update missions
+      if (state.missions.length > 0) {
+        const updated = updateMissionProgress(
+          state.missions,
+          { ...profile, totalSessions: profile.totalSessions + 1 },
+          sessionData.distance,
+          sessionData.cellsRevealed,
+          sessionData.checkpointsDiscovered.length,
+        );
+        dispatch({ type: 'SET_MISSIONS', missions: updated });
+      }
+
+      if (rewards.didLevelUp) {
+        setNewLevel(rewards.levelAfter);
+        setLevelUpVisible(true);
+      } else {
+        setSummaryModalVisible(true);
+      }
+
+      setSeconds(0);
+    },
+    [seconds, profile, state.missions, dispatch, completeSession, showToast],
+  );
 
   const handleLevelUpClose = () => {
     setLevelUpVisible(false);

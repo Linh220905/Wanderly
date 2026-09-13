@@ -220,6 +220,9 @@ const en = {
     restorePurchases: 'Restore purchases',
     language: 'Language',
     about: 'About Wanderly',
+    deleteAccount: 'Delete account permanently',
+    deleteAccountConfirmTitle: 'Delete Account?',
+    deleteAccountConfirmBody: 'All your data, exploration history, and achievements will be permanently deleted and cannot be recovered.',
     signOut: 'Sign out / reset local profile',
     signOutConfirmTitle: 'Reset local adventure?',
     signOutConfirmBody: 'This clears local progress.',
@@ -246,6 +249,15 @@ const en = {
     body: 'You reached Explorer Level {{level}}',
     reward: 'Reward: {{reward}}',
     celebrate: "Let's go!",
+  },
+
+  // ── Tabs ────────────────────────────────────────────────
+  tabs: {
+    map: 'Map',
+    missions: 'Missions',
+    journey: 'Journey',
+    collection: 'Collection',
+    profile: 'Profile',
   },
 
   // ── Checkpoint ──────────────────────────────────────────

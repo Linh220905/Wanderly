@@ -1,97 +1,113 @@
 import React from 'react';
-import { Platform, StyleSheet, View, useColorScheme } from 'react-native';
+import { Platform, StyleSheet, View } from 'react-native';
 import { useColors } from '@/hooks/useColors';
 import { Feather } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { Tabs } from 'expo-router';
 import { useTranslation } from '@/i18n';
+import typography from '@/constants/typography';
 
 export default function TabLayout() {
-  const colors = useColors();
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === 'dark' || true; // Wanderly is always dark themed
+  const c = useColors();
   const isIOS = Platform.OS === 'ios';
   const isWeb = Platform.OS === 'web';
   const { t } = useTranslation();
 
-  const tabNames: Record<string, { en: string; vi: string }> = {
-    map: { en: 'Map', vi: 'Bản đồ' },
-    missions: { en: 'Missions', vi: 'Nhiệm vụ' },
-    journey: { en: 'Journey', vi: 'Hành trình' },
-    collection: { en: 'Collection', vi: 'Bộ sưu tập' },
-    profile: { en: 'Profile', vi: 'Hồ sơ' },
-  };
-
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: colors.primary,
-        tabBarInactiveTintColor: colors.mutedForeground,
+        tabBarActiveTintColor: c.primary,
+        tabBarInactiveTintColor: c.mutedForeground,
         headerShown: false,
         tabBarStyle: {
           position: 'absolute',
-          backgroundColor: isIOS ? 'transparent' : colors.card,
-          borderTopWidth: 0,
-          elevation: 0,
-          height: isWeb ? 84 : undefined,
-          paddingBottom: isIOS ? undefined : 8,
+          backgroundColor: isIOS ? 'transparent' : c.card,
+          borderTopColor: c.border,
+          borderTopWidth: 1,
+          elevation: 10,
+          shadowColor: '#64748B',
+          shadowOffset: { width: 0, height: -2 },
+          shadowOpacity: 0.08,
+          shadowRadius: 8,
+          height: isWeb ? 72 : isIOS ? 88 : 68,
+          paddingTop: 8,
+          paddingBottom: isIOS ? 30 : 10,
         },
         tabBarBackground: () =>
           isIOS ? (
             <BlurView
-              intensity={95}
-              tint="dark"
-              style={StyleSheet.absoluteFill}
+              intensity={85}
+              tint="light"
+              style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(255, 255, 255, 0.85)' }]}
             />
-          ) : isWeb ? (
+          ) : (
             <View
               style={[
                 StyleSheet.absoluteFill,
-                { backgroundColor: colors.card },
+                { backgroundColor: c.card, borderTopWidth: 1, borderTopColor: c.border },
               ]}
             />
-          ) : null,
+          ),
         tabBarLabelStyle: {
           fontSize: 10,
-          fontWeight: '600',
+          fontFamily: typography.label.fontFamily,
+          fontWeight: '700',
+          letterSpacing: 0.3,
+          marginTop: 2,
         },
       }}
     >
       <Tabs.Screen
         name="map"
         options={{
-          title: 'Map',
-          tabBarIcon: ({ color }) => <Feather name="map" size={21} color={color} />,
+          title: t.tabs.map,
+          tabBarIcon: ({ color, focused }) => (
+            <Feather name="map" size={20} color={color} style={focused ? styles.activeIcon : undefined} />
+          ),
         }}
       />
       <Tabs.Screen
         name="missions"
         options={{
-          title: 'Missions',
-          tabBarIcon: ({ color }) => <Feather name="target" size={21} color={color} />,
+          title: t.tabs.missions,
+          tabBarIcon: ({ color, focused }) => (
+            <Feather name="target" size={20} color={color} style={focused ? styles.activeIcon : undefined} />
+          ),
         }}
       />
       <Tabs.Screen
         name="journey"
         options={{
-          title: 'Journey',
-          tabBarIcon: ({ color }) => <Feather name="activity" size={21} color={color} />,
+          title: t.tabs.journey,
+          tabBarIcon: ({ color, focused }) => (
+            <Feather name="activity" size={20} color={color} style={focused ? styles.activeIcon : undefined} />
+          ),
         }}
       />
       <Tabs.Screen
         name="collection"
         options={{
-          title: 'Collection',
-          tabBarIcon: ({ color }) => <Feather name="award" size={21} color={color} />,
+          title: t.tabs.collection,
+          tabBarIcon: ({ color, focused }) => (
+            <Feather name="award" size={20} color={color} style={focused ? styles.activeIcon : undefined} />
+          ),
         }}
       />
       <Tabs.Screen
         name="profile"
         options={{
-          title: 'Profile',
-          tabBarIcon: ({ color }) => <Feather name="user" size={21} color={color} />,
+          title: t.tabs.profile,
+          tabBarIcon: ({ color, focused }) => (
+            <Feather name="user" size={20} color={color} style={focused ? styles.activeIcon : undefined} />
+          ),
         }}
       />
     </Tabs>
   );
 }
+
+const styles = StyleSheet.create({
+  activeIcon: {
+    transform: [{ scale: 1.08 }],
+  },
+});
