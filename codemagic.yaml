@@ -6,9 +6,6 @@ workflows:
     integrations:
       app_store_connect: Codemagic
     environment:
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.wanderly.fogofwar
       node: latest
       xcode: latest
       cocoapods: default
@@ -29,8 +26,14 @@ workflows:
           cd artifacts/wanderly
           npx expo prebuild --platform ios --clean --no-install
           cd ios && pod install
-      - name: Set up code signing settings on Xcode project
+      - name: Set up code signing
         script: |
+          keychain initialize
+          app-store-connect fetch-signing-files "com.wanderly.fogofwar" \
+            --type IOS_APP_STORE \
+            --platform IOS \
+            --create
+          keychain add-certificates
           cd artifacts/wanderly/ios
           xcode-project use-profiles
       - name: Build IPA for App Store
