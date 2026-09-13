@@ -8,7 +8,7 @@ workflows:
     environment:
       ios_signing:
         distribution_type: app_store
-        bundle_identifier: com.wanderly.fogofwar
+        bundle_identifier: "com.wanderly.fogofwar"
       node: latest
       vars:
         BUNDLE_ID: "com.wanderly.fogofwar"
@@ -29,10 +29,6 @@ workflows:
           cd artifacts/wanderly
           npx expo prebuild --platform ios --clean --no-install
           cd ios && pod install
-      - name: Set up code signing settings on Xcode project
-        script: |
-          cd artifacts/wanderly/ios
-          xcode-project use-profiles
       - name: Build IPA for App Store
         script: |
           cd artifacts/wanderly/ios
