@@ -5,11 +5,9 @@ workflows:
     max_build_duration: 60
     environment:
       node: 20.x
-      pnpm: 9.x
       groups:
-        - app_store_credentials # Nhóm biến môi trường chứa API Key Apple nếu có
+        - app_store_credentials
       vars:
-        APP_STORE_APPLE_ID: 6742516428 # Hoặc để tự động theo Bundle ID
         BUNDLE_ID: "com.wanderly.fogofwar"
     triggering:
       events:
@@ -21,7 +19,8 @@ workflows:
     scripts:
       - name: Install pnpm & dependencies
         script: |
-          npm install -g pnpm@9
+          corepack enable
+          corepack prepare pnpm@latest --activate
           pnpm install --frozen-lockfile=false
       - name: Expo Prebuild (Generate iOS Native Project)
         script: |
@@ -44,6 +43,5 @@ workflows:
       - /tmp/xcodebuild_logs/*.log
     publishing:
       app_store_connect:
-        auth: integration # Sử dụng kết nối App Store Connect đã lưu trong Codemagic UI
+        auth: integration
         submit_to_testflight: true
-        expire_in_days: 90
