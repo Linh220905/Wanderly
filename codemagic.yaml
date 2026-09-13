@@ -6,9 +6,6 @@ workflows:
     integrations:
       app_store_connect: Codemagic
     environment:
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.wanderly.fogofwar
       node: latest
       groups:
         - app_store_credentials
@@ -22,15 +19,17 @@ workflows:
           include: true
           source: true
     scripts:
+      - name: Set up code signing (fetch profiles from Apple)
+        script: |
+          keychain initialize
+          app-store-connect fetch-signing-files "com.wanderly.fogofwar" \
+            --type IOS_APP_STORE \
+            --create
+          keychain add-certificates
       - name: Install pnpm & dependencies
         script: |
           npm install -g pnpm@9 --force
           pnpm install --no-frozen-lockfile
-      - name: Set up code signing (fetch profiles from Apple)
-        script: |
-          app-store-connect fetch-signing-files "com.wanderly.fogofwar" \
-            --type IOS_APP_STORE \
-            --create
       - name: Expo Prebuild (Generate iOS Native Project)
         script: |
           cd artifacts/wanderly
